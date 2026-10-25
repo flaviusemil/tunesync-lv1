@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tune Remote settings</title>
+<style>body{margin:0;padding:24px 16px;background:#0b0c0e;color:#d6d9de;font:14px/1.45 system-ui,sans-serif}h2{margin:0 0 4px}.subtitle{margin:0 0 18px;color:#8b919c;max-width:900px}</style></head><body>
+<style>
+  .tr { --bg:#16181c; --panel:#1f2228; --panel2:#262a31; --line:#2e333b; --fg:#e8eaed; --dim:#8d939e; --acc:#3fb37f; --accd:#2b7d59; --warn:#e3a33c;
+        font: 14px/1.35 "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg);
+        border: 1px solid #000; border-radius: 10px; width: 100%; max-width: 480px; overflow: hidden; box-shadow: 0 10px 34px #0007; position: relative; }
+  .tr * { box-sizing: border-box; }
+  .tr .title { display:flex; align-items:center; gap:10px; height:40px; padding:0 14px; background:#101215; border-bottom:1px solid var(--line); }
+  .tr .title b { font-weight:600; } .tr .title .v { color:var(--dim); font-size:12px; } .tr .title .x { margin-left:auto; color:var(--dim); font-size:16px; }
+  .tr .pad { padding:12px 14px; display:grid; gap:12px; }
+  .tr .lbl { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  /* big tappable tiles: every target >= 44 px */
+  .tr .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .tr .grid3 { display:grid; grid-template-columns:1fr 1fr 1.25fr; gap:10px; }
+  .tr .tile { background:var(--panel); border:1px solid var(--line); border-radius:10px; min-height:56px; padding:8px 12px; display:flex; flex-direction:column; justify-content:center; gap:2px; position:relative; }
+  .tr .tile .val { font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tr .tile .chev { position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--dim); font-size:18px; }
+  .tr .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--acc); box-shadow:0 0 6px var(--acc); margin-right:6px; vertical-align:middle; }
+  .tr .seg { display:grid; grid-template-columns:1fr 1fr; border:1px solid var(--line); border-radius:8px; overflow:hidden; height:36px; }
+  .tr .seg span { display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:600; color:var(--dim); }
+  .tr .seg .on { background:var(--accd); color:#fff; }
+  .tr .last { background:linear-gradient(90deg, #2b7d5933, transparent); border-left:3px solid var(--acc); border-radius:6px; padding:8px 12px; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .tr .last b { font-size:16px; } .tr .last .m { color:var(--dim); font-size:12.5px; }
+  .tr .head { display:flex; align-items:center; gap:10px; }
+  .tr .head .r { margin-left:auto; }
+  .tr .btnq { background:var(--panel2); border:1px solid var(--line); border-radius:8px; height:36px; padding:0 14px; display:inline-flex; align-items:center; font-size:13px; }
+  .tr .tunes { display:grid; gap:6px; }
+  .tr .tune { display:grid; grid-template-columns: 1fr 44px 1.2fr 64px; align-items:center; gap:8px; min-height:44px; padding:0 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .tr .tune .ch { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .tr .tune .ch small { color:var(--dim); }
+  .tr .tune .key { font-weight:700; font-size:16px; } .tr .tune .sc { color:var(--dim); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tr .badge { justify-self:end; font-size:12px; font-weight:600; border-radius:999px; padding:3px 10px; }
+  .tr .rcv { color:var(--acc); background:#3fb37f1f; } .tr .lock { color:var(--warn); background:#e3a33c22; }
+  .tr .apply { display:grid; grid-template-columns: 0.8fr 1.4fr 1fr; gap:10px; }
+  .tr .go { background:var(--accd); border:1px solid var(--acc); border-radius:10px; min-height:56px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; }
+  .tr .log { font: 12px/1.55 Consolas, ui-monospace, monospace; display:grid; gap:2px; }
+  .tr .log div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .tr .log .t { color:#6c727d; } .tr .log .w { color:var(--warn); } .tr .log .ok { color:#9fd8bd; }
+  .tr .hr { height:1px; background:var(--line); }
+  /* in-window sheet */
+  .tr .scrim { position:absolute; inset:40px 0 0 0; background:#000a; }
+  .tr .sheet { position:absolute; left:0; right:0; bottom:0; background:#1b1e23; border-top:1px solid var(--line); border-radius:14px 14px 0 0; padding:10px 14px 14px; display:grid; gap:10px; }
+  .tr .grab { width:44px; height:5px; border-radius:3px; background:#444a54; justify-self:center; }
+  .tr .sheet h3 { margin:0; font-size:15px; } .tr .sheet .head .r { font-weight:600; color:var(--acc); }
+  .tr .opt { display:flex; align-items:center; gap:12px; min-height:48px; padding:0 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .tr .opt.on { border-color:var(--acc); background:#2b7d5926; }
+  .tr .opt .num { width:28px; color:var(--dim); font-variant-numeric:tabular-nums; text-align:right; }
+  .tr .opt .tick { margin-left:auto; color:var(--acc); font-weight:700; }
+  .tr .sw { width:52px; height:30px; border-radius:15px; background:var(--accd); position:relative; margin-left:auto; }
+  .tr .sw::after { content:""; position:absolute; top:3px; right:3px; width:24px; height:24px; border-radius:50%; background:#fff; }
+  .tr .field { background:var(--panel); border:1px solid var(--line); border-radius:8px; min-height:44px; padding:0 12px; display:flex; align-items:center; gap:10px; }
+  .tr .field .k { color:var(--dim); width:96px; }
+  .tr .hint { color:var(--dim); font-size:12.5px; }
+  .tr .scroll { display:grid; gap:6px; }
+  .wrap3 { display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start; }
+  .wrap3 > div { flex:1 1 360px; min-width:0; max-width:480px; }
+  .cap { color:var(--dim, #8d939e); font-size:13px; margin:8px 2px 0; }
+</style>
+
+<h2>One page, touch-first</h2>
+<p class="subtitle">Everything on one page; details open as in-window sheets (like Headlink's dialogs). Every tap target is at least 44 px; no small dropdowns, no tabs, nothing to scroll for in a show.</p>
+
+<div class="wrap3">
+
+<div>
+<div class="tr">
+  <div class="title"><b>Tune Remote</b><span class="v">0.1</span><span class="x">✕</span></div>
+  <div class="pad">
+    <div class="grid2">
+      <div class="tile"><span class="lbl">MIDI in</span><span class="val"><span class="dot"></span>MIDISPORT 2x2 In A</span><span class="chev">›</span></div>
+      <div class="tile"><span class="lbl">RTP-MIDI</span><span class="val"><span class="dot"></span>2 peers</span><span class="chev">›</span></div>
+    </div>
+    <div class="grid3">
+      <div class="tile"><span class="lbl">Channel</span><span class="val">16</span><span class="chev">›</span></div>
+      <div class="tile"><span class="lbl">Scale CC</span><span class="val">20</span><span class="chev">›</span></div>
+      <div class="tile" style="padding:8px"><span class="lbl" style="padding-left:4px">Spelling</span><div class="seg"><span class="on">♯</span><span>♭</span></div></div>
+    </div>
+    <div class="last"><b>A Natural Minor</b><span class="m">21:04:12 · from Playback-Mac · set 2, 1 locked</span></div>
+    <div class="head"><span class="lbl">Tunes · 3</span><span class="btnq r">Rescan</span></div>
+    <div class="tunes">
+      <div class="tune"><span class="ch">Ch 43 <small>Vox 1</small></span><span class="key">A</span><span class="sc">Natural Minor</span><span class="badge rcv">Rcv</span></div>
+      <div class="tune"><span class="ch">Ch 44 <small>Vox 2</small></span><span class="key">A</span><span class="sc">Natural Minor</span><span class="badge rcv">Rcv</span></div>
+      <div class="tune"><span class="ch">Ch 45 <small>BV</small></span><span class="key">E♭</span><span class="sc">Major</span><span class="badge lock">Lock</span></div>
+    </div>
+    <div class="apply">
+      <div class="tile"><span class="lbl">Key</span><span class="val">A</span><span class="chev">›</span></div>
+      <div class="tile"><span class="lbl">Scale</span><span class="val">Natural Minor</span><span class="chev">›</span></div>
+      <div class="go">Apply now</div>
+    </div>
+    <div class="hr"></div>
+    <div class="head"><span class="lbl">Log</span><span class="btnq r">Full log ›</span></div>
+    <div class="log">
+      <div class="ok"><span class="t">21:04:12</span> A Natural Minor: set 2 (Ch 43, Ch 44)</div>
+      <div class="w"><span class="t">21:04:12</span> skipped 1 locked (Ch 45 BV)</div>
+      <div><span class="t">21:04:12</span> Playback-Mac Note On 57 (A) · CC 20 = 3</div>
+    </div>
+  </div>
+</div>
+<p class="cap">The page. Tap a tile to change it; the last change and the Tunes are always in view.</p>
+</div>
+
+<div>
+<div class="tr" style="min-height:640px">
+  <div class="title"><b>Tune Remote</b><span class="v">0.1</span><span class="x">✕</span></div>
+  <div class="pad" style="opacity:.35">
+    <div class="grid2"><div class="tile"><span class="lbl">MIDI in</span><span class="val">MIDISPORT 2x2 In A</span></div><div class="tile"><span class="lbl">RTP-MIDI</span><span class="val">2 peers</span></div></div>
+  </div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="head"><h3>RTP-MIDI</h3><span class="r">Done</span></div>
+    <div class="field"><span>Network session</span><span class="sw"></span></div>
+    <div class="field"><span class="k">Session name</span><span>Tune Remote</span></div>
+    <div class="field"><span class="k">UDP port</span><span>5004</span></div>
+    <span class="lbl">Connected</span>
+    <div class="opt"><span class="dot"></span>Playback-Mac<span class="hint" style="margin-left:auto">192.0.2.41 · now</span></div>
+    <div class="opt"><span class="dot"></span>Playback-Backup<span class="hint" style="margin-left:auto">192.0.2.42 · 3 s ago</span></div>
+    <span class="lbl">Found on the network</span>
+    <div class="opt">Studio-MacBook<span class="hint">Network Session 1</span><span class="btnq" style="margin-left:auto;background:var(--accd);border-color:var(--acc);font-weight:600">Connect</span></div>
+    <div class="hint">Macs also see "Tune Remote" in Audio MIDI Setup → Network → Directory by themselves. No Bonjour install needed.</div>
+  </div>
+</div>
+<p class="cap">Tapping RTP-MIDI: on/off, name, port, every connected rig, and Macs found on the network (tap Connect).</p>
+</div>
+
+<div>
+<div class="tr" style="min-height:640px">
+  <div class="title"><b>Tune Remote</b><span class="v">0.1</span><span class="x">✕</span></div>
+  <div class="pad" style="opacity:.35">
+    <div class="grid3"><div class="tile"><span class="lbl">Channel</span><span class="val">16</span></div><div class="tile"><span class="lbl">Scale CC</span><span class="val">20</span></div><div class="tile"><span class="lbl">Spelling</span></div></div>
+  </div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="head"><h3>Scale for Apply now</h3><span class="r">Done</span></div>
+    <div class="hint">The number is the CC 20 value that selects it from the tracks.</div>
+    <div class="scroll">
+      <div class="opt"><span class="num">1</span>Chromatic</div>
+      <div class="opt"><span class="num">2</span>Major</div>
+      <div class="opt on"><span class="num">3</span>Natural Minor<span class="tick">✓</span></div>
+      <div class="opt"><span class="num">4</span>Harmonic Minor</div>
+      <div class="opt"><span class="num">5</span>Melodic Minor (Asc)</div>
+      <div class="opt"><span class="num">6</span>Melodic Minor (Asc+Dec)</div>
+      <div class="opt" style="opacity:.6"><span class="num">…</span>7–10, 0 User Scale</div>
+    </div>
+  </div>
+</div>
+<p class="cap">Tapping a scale: big rows, and the list doubles as the CC reference.</p>
+</div>
+
+</div>
+
+</body></html>

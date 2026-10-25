@@ -102,48 +102,68 @@ Lock ourselves and report exactly what changed.
 ## Settings window
 
 Opened from LV1's **Setup → Control Surfaces** settings button (WMSD_ShowConfigWindow). It
-runs on its own thread with its own message loop and never on LV1's UI thread. Mockup:
-`docs/settings-mockup.html`.
+runs on its own thread with its own message loop and never on LV1's UI thread.
 
-**Layout: tabs** (chosen 2026-10-26 over collapsible sections; `docs/settings-layout-options.html`).
-The window is about 470 px wide. The status strip sits above the tabs and is always visible.
-The content of each tab is in `docs/settings-mockup.html`, which shows all the sections on one
-page.
+**Layout: one page, touch-first** (2026-10-26, `docs/settings-onepage.html`; it replaces the
+tabs and collapsible-section options in `docs/settings-layout-options.html`). LV1 hosts are often
+touchscreens:
+- Every tap target is at least 44 px.
+- No small dropdowns and no tabs.
+- Nothing needed during a show sits below the fold.
+- Details open as sheets inside the window, the way Headlink's dialogs do, never as separate
+  windows.
 
-- **Status strip (always visible).** The input is listening (port name, or the RTP peer's
-  name), the number of Tunes found and locked, and the last change with its time. Each
-  input's dot is green when MIDI arrived in the last few seconds.
-- **Tunes** (the tab the window opens on):
-  - Every instance found, with its track name, slot, current key and scale, and Receive or
-    Lock. Refreshed when the window opens and after each change.
-  - **Apply now:** key and scale dropdowns, so the link can be checked at soundcheck without
-    the tracks rig. It goes through the same apply path, so Locked Tunes are skipped.
-    (Builder's suggestion.)
-- **Input:**
-  - MIDI port: a list of the host's input ports, chosen by name. The list includes "None".
-    The port is reopened when it reappears, because Windows renumbers devices.
-  - RTP-MIDI: off by default. When on, it shows the session name (default "Tune Remote"), UDP
-    port 5004, connected peers, and a hint telling the Mac side what to add in Audio MIDI
-    Setup → Network (this host's IP and port).
-  - **Several peers can join the same session at once**, as AppleMIDI allows (one port pair,
-    each participant told apart by its SSRC). For example, a main and a backup playback rig.
-    - The tab lists every peer with its name, address and when it was last heard.
-    - A message from any peer applies, and the log names the peer it came from.
-    - When main and backup send the same cue together, the 30 ms coalescing makes it one
-      change.
-- **Mapping:**
-  - Channel: 1-16 or Omni. The default is 16 (builder's call: Omni would also react to a
-    keyboard on the same port).
-  - Scale CC number: default 20, an undefined CC.
-  - Default spelling: Sharps or Flats.
-  - A read-only reference: notes → keys, and CC values 0..10 → scale names.
-- **Log:**
-  - The newest lines first, with a timestamp on each: every message received, what it did and
-    every skip.
-  - Ignored messages, such as a keyboard on another channel, get at most one summary line
-    every 5 s.
-  - **Copy** and **Clear** buttons.
-  - The same lines go to `%ProgramData%\Tune Remote\tune-remote.log` (1 MB, one rotation).
+The window is about 480 px wide. From top to bottom:
+
+1. **Inputs:** two tiles, **MIDI in** (the port name) and **RTP-MIDI** (off / n peers), each
+   with a dot that is green when MIDI arrived in the last few seconds.
+   - Tapping MIDI in opens a sheet with the host's input ports as 48 px rows, plus "None". The
+     port is chosen by name and reopened when it reappears, because Windows renumbers devices.
+   - Tapping RTP-MIDI opens the RTP sheet (see RTP-MIDI below).
+2. **Mapping:** three tiles.
+   - **Channel** opens a sheet with a grid of 1-16 plus Omni. The default is 16 (builder's
+     call: Omni would also react to a keyboard on the same port).
+   - **Scale CC** opens a number sheet. The default is 20, an undefined CC.
+   - **Spelling** is a ♯/♭ switch on the page itself.
+3. **Last change:** a banner with the key and scale, the time, the source and the result
+   ("set 2, 1 locked").
+4. **Tunes:** one 44 px row per instance with its track, key, scale and a Rcv/Lock badge,
+   plus a **Rescan** button. The list refreshes when the window opens and after each change.
+5. **Apply now:** Key and Scale tiles (each opens a picker sheet) and a big Apply button. It
+   checks the link at soundcheck without the tracks rig, and goes through the same apply path,
+   so Locked Tunes are skipped.
+   - The scale picker lists each scale with its CC value, so it is also the reference table.
+   - The key picker has 12 large buttons.
+6. **Log:** the last three lines, and **Full log** opens a sheet with everything (newest first,
+   timestamped) plus Copy and Clear.
+   - Ignored messages, such as a keyboard on another channel, get at most one summary line
+     every 5 s.
+   - The same lines go to `%ProgramData%\Tune Remote\tune-remote.log` (1 MB, one rotation).
+
+### RTP-MIDI
+
+- **The sheet:** an on/off switch (off by default), the session name (default "Tune Remote"),
+  the UDP port (5004), **Connected** peers and **Found on the network**.
+- **Several peers at once.** Several peers can join the same session, as AppleMIDI allows:
+  one port pair, with each participant told apart by its SSRC. For example, a main and a
+  backup playback rig.
+  - Each connected peer is listed with its name, address and when it was last heard.
+  - A message from any peer applies, and the log names the peer it came from.
+  - When main and backup send the same cue together, the 30 ms coalescing makes it one change.
+- **Auto-discovery, with no Bonjour install.** Windows 10 and 11 have DNS-SD built in
+  (`DnsServiceRegister` / `DnsServiceBrowse` in dnsapi). It works both ways:
+  - **Advertise:** while RTP is on, register `_apple-midi._udp` under the session name and
+    port. "Tune Remote" then appears in the Mac's Audio MIDI Setup → MIDI Network Setup →
+    Directory by itself, and the Mac connects with one click.
+  - **Browse:** list the Macs' own network sessions under "Found on the network", each with
+    a Connect button. Tune Remote then invites the Mac as the initiator, so the Mac only needs
+    its session enabled. Connections made this way are remembered and re-invited when the Mac
+    comes back.
+  - Typing the host IP and port on the Mac still works as a fallback.
+  - If the Windows API misbehaves on a host, there are two other routes: preprobe's own mDNS
+    code (`discover.*`, which browses with legacy-unicast queries) and a small responder of
+    our own. Not tested yet on the LV1 hosts.
+  - rtpMIDI (Tobias Erichsen) is why people expect to install Bonjour. We don't use it.
 
 **Settings storage (builder's call).** `%ProgramData%\Tune Remote\settings.ini`. LV1's own
 preset blob (WMSD_GetPreset) only holds a version marker, because LV1 writes its preferences

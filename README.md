@@ -7,7 +7,7 @@ Tunes switched to Lock are left alone.
 Tune Remote is separate from Headlink. It has its own DLL, settings and installer.
 
 - Design: [docs/DESIGN.md](docs/DESIGN.md). The settings window is in
-  [docs/settings-mockup.html](docs/settings-mockup.html), laid out as tabs.
+  [docs/settings-onepage.html](docs/settings-onepage.html): one page, touch-first.
 - Portable core with tests: `core/`, `test/`. Run `make test`, or `make asan` to run them
   under sanitizers.
 - Windows shell (WMSD exports, MIDI, RTP-MIDI, settings window): `win/` and `net/`, which are
