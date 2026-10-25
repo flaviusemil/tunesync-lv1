@@ -125,6 +125,12 @@ page.
   - RTP-MIDI: off by default. When on, it shows the session name (default "Tune Remote"), UDP
     port 5004, connected peers, and a hint telling the Mac side what to add in Audio MIDI
     Setup → Network (this host's IP and port).
+  - **Several peers can join the same session at once**, as AppleMIDI allows (one port pair,
+    each participant told apart by its SSRC). For example, a main and a backup playback rig.
+    - The tab lists every peer with its name, address and when it was last heard.
+    - A message from any peer applies, and the log names the peer it came from.
+    - When main and backup send the same cue together, the 30 ms coalescing makes it one
+      change.
 - **Mapping:**
   - Channel: 1-16 or Omni. The default is 16 (builder's call: Omni would also react to a
     keyboard on the same port).
@@ -149,7 +155,7 @@ file only when it closes cleanly.
 |---|---|
 | `core/` | Portable C++17 with no Windows or LV1 headers: Tune tables and spelling, the MIDI-to-intent mapper, discovery and apply against an abstract `Mixer`, settings (ini), the log ring. Unit-tested on Linux (`make test`) with a fake mixer. |
 | `win/` | (next) The WMSD exports (ABI from Headlink's `tools/surfaceprobe/wmsd_abi.h`), the `Mixer` implemented on LV1's Get/SetMixerControl callbacks, local MIDI, the settings window and the worker threads. |
-| `net/` | (next) RTP-MIDI. A copy of Headlink's `tools/preprobe/rtpmidi.*` (responder mode) and `midiport.*` (WinMM by name), from the `demo/pre-probe` branch. Copied, not linked, so the two products stay independent. |
+| `net/` | (next) RTP-MIDI. Built from Headlink's `tools/preprobe/rtpmidi.*` and `midiport.*` (WinMM by name), on the `demo/pre-probe` branch. They are copied, not linked, so the two products stay independent. The codec (`am_*` / `rtp_*`) is reused as is. preprobe's `Session` talks to a single peer, so it is replaced by a responder that keeps a table of participants keyed by SSRC: invitation on the control port then the data port, CK replies, RS feedback, BY and a silence timeout, all per peer. |
 
 **Install.** Copy `TuneRemote_Control.dll` into `C:\Program Files (x86)\Waves\eMotion LV1\Modules`
 (this needs elevation). Then either add the surface in Setup → Control Surfaces, or have the
