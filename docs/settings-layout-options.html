@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tune Remote layout options</title>
+<style>body{margin:0;padding:24px 16px;background:#0b0c0e;color:#d6d9de;font:14px/1.45 system-ui,sans-serif}h2{margin:0 0 4px}.subtitle{margin:0 0 18px;color:#8b919c}.cards{display:flex;flex-wrap:wrap;gap:20px}.card{flex:1 1 360px;min-width:0;border:1px solid #2c3038;border-radius:10px;overflow:hidden}.card-body{padding:4px 16px 12px}.card-body h3{margin:8px 0 4px}</style></head><body>
+<style>
+  .tr { --bg:#16181c; --panel:#1e2127; --line:#2c3038; --fg:#e6e8eb; --dim:#8b919c; --acc:#3fb37f; --warn:#e0a03a; --chip:#262a31;
+        font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg);
+        border: 1px solid #000; border-radius: 8px; width: 100%; max-width: 470px; overflow: hidden; box-shadow: 0 8px 30px #0006; }
+  .tr * { box-sizing: border-box; }
+  .tr .title { display:flex; align-items:center; gap:10px; padding:7px 12px; background:#101215; border-bottom:1px solid var(--line); }
+  .tr .title b { font-weight:600; } .tr .title .x { margin-left:auto; color:var(--dim); }
+  .tr .strip { display:flex; flex-wrap:wrap; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:12px; }
+  .tr .pill { display:inline-flex; align-items:center; gap:6px; background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:2px 9px; }
+  .tr .dot { width:8px; height:8px; border-radius:50%; background:var(--acc); box-shadow:0 0 6px var(--acc); }
+  .tr .tabs { display:flex; border-bottom:1px solid var(--line); background:#1a1c21; }
+  .tr .tabs span { padding:7px 14px; color:var(--dim); border-bottom:2px solid transparent; }
+  .tr .tabs .on { color:var(--fg); border-bottom-color:var(--acc); }
+  .tr .pane { padding:10px 12px; display:grid; gap:8px; min-height:210px; }
+  .tr .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .tr .k { width:104px; color:var(--dim); }
+  .tr .dd { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:2px 9px; }
+  .tr .dd::after { content:" ▾"; color:var(--dim); }
+  .tr .btn { background:#2f6f55; border:1px solid #3c8a6a; border-radius:5px; padding:3px 12px; font-weight:600; }
+  .tr table.tunes { border-collapse:collapse; width:100%; font-size:12px; }
+  .tr table.tunes th { text-align:left; color:var(--dim); font-weight:500; padding:3px 6px; border-bottom:1px solid var(--line); }
+  .tr table.tunes td { padding:4px 6px; border-bottom:1px solid #23262c; }
+  .tr .lock { color:var(--warn); } .tr .rcv { color:var(--acc); }
+  .tr .sec { border-bottom:1px solid var(--line); }
+  .tr .sec .hd { display:flex; align-items:center; gap:8px; padding:8px 12px; }
+  .tr .sec .hd b { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  .tr .sec .hd .sum { margin-left:auto; color:var(--fg); font-size:12px; }
+  .tr .sec .hd .chev { color:var(--dim); width:12px; }
+  .tr .sec .body { padding:0 12px 10px; display:grid; gap:8px; }
+  .tr .log { font: 11.5px/1.5 Consolas, ui-monospace, monospace; background:#0f1114; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  .tr .log div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .tr .log .t { color:#6c727d; } .tr .log .w { color:var(--warn); } .tr .log .ok { color:#9fd8bd; }
+  .tr .hint { color:var(--dim); font-size:12px; }
+</style>
+
+<h2>Tabs or collapsible sections?</h2>
+<p class="subtitle">Both keep the status strip always visible and open on what you look at during a show (the Tunes and the last change). Click the one you prefer.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="tabs" onclick="toggleSelect(this)">
+    <div class="card-image" style="display:flex;justify-content:center;padding:12px">
+      <div class="tr">
+        <div class="title"><b>Tune Remote</b><span class="x">✕</span></div>
+        <div class="strip">
+          <span class="pill"><span class="dot"></span>MIDISPORT In A</span>
+          <span class="pill"><span class="dot"></span>RTP: Playback-Mac</span>
+          <span class="pill">Last: A Natural Minor 21:04</span>
+        </div>
+        <div class="tabs"><span class="on">Tunes</span><span>Input</span><span>Mapping</span><span>Log</span></div>
+        <div class="pane">
+          <table class="tunes">
+            <tr><th>Channel</th><th>Key</th><th>Scale</th><th></th></tr>
+            <tr><td>Ch 43 Vox 1</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+            <tr><td>Ch 44 Vox 2</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+            <tr><td>Ch 45 BV</td><td>E♭</td><td>Major</td><td class="lock">Lock</td></tr>
+          </table>
+          <div class="row"><span class="dd">A</span><span class="dd">Natural Minor</span><span class="btn">Apply now</span></div>
+          <div class="hint">Input: port + RTP-MIDI · Mapping: channel, scale CC, spelling, reference · Log: full history + Copy</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Tabs</h3>
+      <p>Four tabs: Tunes (with Apply now), Input, Mapping, Log. The window stays small; setup tabs get visited once.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="collapsible" onclick="toggleSelect(this)">
+    <div class="card-image" style="display:flex;justify-content:center;padding:12px">
+      <div class="tr">
+        <div class="title"><b>Tune Remote</b><span class="x">✕</span></div>
+        <div class="strip">
+          <span class="pill"><span class="dot"></span>MIDISPORT In A</span>
+          <span class="pill"><span class="dot"></span>RTP: Playback-Mac</span>
+          <span class="pill">Last: A Natural Minor 21:04</span>
+        </div>
+        <div class="sec"><div class="hd"><span class="chev">▸</span><b>Input</b><span class="sum">MIDISPORT In A · RTP on</span></div></div>
+        <div class="sec"><div class="hd"><span class="chev">▸</span><b>Mapping</b><span class="sum">ch 16 · CC 20 · sharps</span></div></div>
+        <div class="sec"><div class="hd"><span class="chev">▾</span><b>Tunes</b><span class="sum">3 · 1 locked</span></div>
+          <div class="body">
+            <table class="tunes">
+              <tr><td>Ch 43 Vox 1</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+              <tr><td>Ch 44 Vox 2</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+              <tr><td>Ch 45 BV</td><td>E♭</td><td>Major</td><td class="lock">Lock</td></tr>
+            </table>
+            <div class="row"><span class="dd">A</span><span class="dd">Natural Minor</span><span class="btn">Apply now</span></div>
+          </div>
+        </div>
+        <div class="sec" style="border-bottom:0"><div class="hd"><span class="chev">▾</span><b>Log</b><span class="sum">Copy</span></div>
+          <div class="body"><div class="log">
+            <div class="ok"><span class="t">21:04:12</span> A Natural Minor: set 2 (Ch 43, Ch 44)</div>
+            <div class="w"><span class="t">21:04:12</span> skipped 1 locked (Ch 45 BV)</div>
+            <div><span class="t">21:01:55</span> RTP Playback-Mac connected</div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Collapsible sections</h3>
+      <p>Each section folds to one line that still shows its settings (port, channel, CC). Open what you need; the window remembers which were open.</p>
+    </div>
+  </div>
+
+</div>
+</body></html>

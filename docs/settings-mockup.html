@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tune Remote settings mockup</title>
+<style>body{margin:0;padding:24px 16px;background:#0b0c0e;color:#d6d9de;font:14px/1.45 system-ui,sans-serif}h2{margin:0 auto 4px;max-width:640px}.subtitle{margin:0 auto 18px;max-width:640px;color:#8b919c}</style></head><body>
+<style>
+  .tr { --bg:#16181c; --panel:#1e2127; --line:#2c3038; --fg:#e6e8eb; --dim:#8b919c; --acc:#3fb37f; --warn:#e0a03a; --chip:#262a31;
+        font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg);
+        border: 1px solid #000; border-radius: 8px; max-width: 640px; margin: 0 auto; overflow: hidden; box-shadow: 0 8px 30px #0006; }
+  .tr * { box-sizing: border-box; }
+  .tr .title { display:flex; align-items:center; gap:10px; padding:8px 12px; background:#101215; border-bottom:1px solid var(--line); }
+  .tr .title b { font-weight:600; letter-spacing:.2px; }
+  .tr .title .x { margin-left:auto; color:var(--dim); }
+  .tr .strip { display:flex; flex-wrap:wrap; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .tr .pill { display:inline-flex; align-items:center; gap:6px; background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:3px 10px; }
+  .tr .dot { width:8px; height:8px; border-radius:50%; background:var(--acc); box-shadow:0 0 6px var(--acc); }
+  .tr .dot.off { background:#555; box-shadow:none; }
+  .tr .sec { padding:10px 12px; border-bottom:1px solid var(--line); display:grid; gap:8px; }
+  .tr .sec h4 { margin:0; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  .tr .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .tr .k { width:118px; color:var(--dim); }
+  .tr .dd { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:3px 9px; min-width:90px; }
+  .tr .dd::after { content:" ▾"; color:var(--dim); }
+  .tr .sw { width:34px; height:18px; border-radius:9px; background:#3a3f48; position:relative; display:inline-block; vertical-align:middle; }
+  .tr .sw::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#cfd3d9; }
+  .tr .sw.on { background:var(--acc); } .tr .sw.on::after { left:18px; }
+  .tr .seg { display:inline-flex; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+  .tr .seg span { padding:3px 10px; } .tr .seg .sel { background:#2f3540; }
+  .tr .hint { color:var(--dim); font-size:12px; }
+  .tr .rtp { margin-left:128px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:6px; display:grid; gap:5px; }
+  .tr .ref { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+  .tr .card2 { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:12px; }
+  .tr .card2 table { border-collapse:collapse; width:100%; }
+  .tr .card2 td { padding:1px 4px; } .tr .card2 td:first-child { color:var(--dim); width:34px; }
+  .tr table.tunes { border-collapse:collapse; width:100%; font-size:12px; }
+  .tr table.tunes th { text-align:left; color:var(--dim); font-weight:500; padding:3px 6px; border-bottom:1px solid var(--line); }
+  .tr table.tunes td { padding:4px 6px; border-bottom:1px solid #23262c; }
+  .tr .lock { color:var(--warn); } .tr .rcv { color:var(--acc); }
+  .tr .btn { background:#2f6f55; border:1px solid #3c8a6a; border-radius:5px; padding:4px 12px; font-weight:600; }
+  .tr .btn.q { background:var(--panel); border-color:var(--line); font-weight:400; }
+  .tr .log { font: 11.5px/1.5 Consolas, ui-monospace, monospace; background:#0f1114; border:1px solid var(--line); border-radius:6px; padding:6px 8px; max-height:170px; overflow:auto; }
+  .tr .log div { white-space:nowrap; } .tr .log .t { color:#6c727d; } .tr .log .w { color:var(--warn); } .tr .log .ok { color:#9fd8bd; }
+  @media (max-width:560px) { .tr .rtp { margin-left:0; } .tr .ref { grid-template-columns:1fr; } .tr .k { width:100%; } }
+</style>
+
+<h2>Settings window</h2>
+<p class="subtitle">Opened from LV1 Setup → Control Surfaces → the gear on "Tune Remote". One scrolling window: status, input, mapping, Tunes found, test, log. The name is a placeholder.</p>
+
+<div class="tr">
+  <div class="title"><b>Tune Remote</b><span class="hint">v0.1 · LV1 16.5</span><span class="x">✕</span></div>
+
+  <div class="strip">
+    <span class="pill"><span class="dot"></span>MIDI: MIDISPORT 2x2 In A</span>
+    <span class="pill"><span class="dot"></span>RTP: Playback-Mac</span>
+    <span class="pill">3 Tunes · 1 locked</span>
+    <span class="pill">Last: A Natural Minor · 21:04:12</span>
+  </div>
+
+  <div class="sec">
+    <h4>Input</h4>
+    <div class="row"><span class="k">MIDI port</span><span class="dd">MIDISPORT 2x2 In A</span><span class="hint">or None</span></div>
+    <div class="row"><span class="k">RTP-MIDI</span><span class="sw on"></span><span>On</span></div>
+    <div class="rtp">
+      <div class="row"><span class="k" style="width:100px">Session name</span><span class="dd" style="min-width:150px">Tune Remote</span></div>
+      <div class="row"><span class="k" style="width:100px">UDP port</span><span class="dd" style="min-width:70px">5004</span></div>
+      <div class="row"><span class="k" style="width:100px">Connected</span><span class="rcv">● Playback-Mac (192.0.2.41)</span></div>
+      <div class="hint">On the Mac: Audio MIDI Setup → MIDI Network Setup → Directory "+" → host 192.0.2.172, port 5004 → Connect.</div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h4>Mapping</h4>
+    <div class="row"><span class="k">Channel</span><span class="dd">16</span><span class="hint">1–16 or Omni</span></div>
+    <div class="row"><span class="k">Scale CC</span><span class="dd">20</span><span class="hint">value 0–10 = Tune's scale</span></div>
+    <div class="row"><span class="k">Default spelling</span><span class="seg"><span class="sel">Sharps ♯</span><span>Flats ♭</span></span></div>
+    <div class="hint" style="margin-left:128px">A Tune already on a flat key stays flat, one on a sharp key stays sharp. This default is for Tunes on C D E F G A B.</div>
+    <div class="ref">
+      <div class="card2"><b>Note → key</b> (any octave)
+        <table><tr><td>C</td><td>C</td><td>F♯/G♭</td><td>F♯ or G♭</td></tr><tr><td>C♯/D♭</td><td>C♯ or D♭</td><td>G</td><td>G</td></tr>
+        <tr><td>D</td><td>D</td><td>G♯/A♭</td><td>G♯ or A♭</td></tr><tr><td>D♯/E♭</td><td>D♯ or E♭</td><td>A</td><td>A</td></tr>
+        <tr><td>E</td><td>E</td><td>A♯/B♭</td><td>A♯ or B♭</td></tr><tr><td>F</td><td>F</td><td>B</td><td>B</td></tr></table></div>
+      <div class="card2"><b>CC 20 value → scale</b>
+        <table><tr><td>0</td><td>User Scale</td></tr><tr><td>1</td><td>Chromatic</td></tr><tr><td>2</td><td>Major</td></tr><tr><td>3</td><td>Natural Minor</td></tr>
+        <tr><td>4</td><td>Harmonic Minor</td></tr><tr><td>5</td><td>Melodic Minor (Asc)</td></tr><tr><td>6</td><td>Melodic Minor (Asc+Dec)</td></tr>
+        <tr><td>7</td><td>Major Justonic</td></tr><tr><td>8</td><td>Minor Justonic</td></tr><tr><td>9</td><td>Dorian</td></tr><tr><td>10</td><td>Mixolydian</td></tr></table></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h4>Tunes found</h4>
+    <table class="tunes">
+      <tr><th>Channel</th><th>Slot</th><th>Key</th><th>Scale</th><th>Receive</th></tr>
+      <tr><td>Ch 43 · Vox 1</td><td>1</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+      <tr><td>Ch 44 · Vox 2</td><td>1</td><td>A</td><td>Natural Minor</td><td class="rcv">Rcv</td></tr>
+      <tr><td>Ch 45 · BV</td><td>2</td><td>E♭</td><td>Major</td><td class="lock">Lock</td></tr>
+    </table>
+  </div>
+
+  <div class="sec">
+    <h4>Test</h4>
+    <div class="row"><span class="k">Set all now</span><span class="dd">A</span><span class="dd" style="min-width:140px">Natural Minor</span><span class="btn">Apply now</span></div>
+    <div class="hint" style="margin-left:128px">Same path as MIDI: Locked Tunes are skipped.</div>
+  </div>
+
+  <div class="sec" style="border-bottom:0">
+    <div class="row"><h4 style="flex:1">Log</h4><span class="btn q">Copy</span><span class="btn q">Clear</span></div>
+    <div class="log">
+      <div><span class="t">21:04:12.031</span> RTP Playback-Mac  CC 20 = 3  ch 16</div>
+      <div><span class="t">21:04:12.032</span> RTP Playback-Mac  Note On A3 (57) vel 100  ch 16</div>
+      <div class="ok"><span class="t">21:04:12.064</span> A Natural Minor → set 2 (Ch 43 Vox 1, Ch 44 Vox 2)</div>
+      <div class="w"><span class="t">21:04:12.064</span> skipped 1 locked (Ch 45 BV)</div>
+      <div><span class="t">21:01:55.410</span> RTP Playback-Mac connected (192.0.2.41)</div>
+      <div><span class="t">21:01:40.002</span> MIDI MIDISPORT 2x2 In A opened</div>
+      <div class="w"><span class="t">20:58:03.118</span> CC 20 = 14 ignored (scales are 0–10)</div>
+    </div>
+  </div>
+</div>
+</body></html>
