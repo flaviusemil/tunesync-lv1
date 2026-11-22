@@ -49,6 +49,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
 UninstallDisplayName=TuneSync
+SetupIconFile=..\assets\logo\tunesync.ico
+UninstallDisplayIcon={app}\tunesync.ico
 OutputDir={#OutDir}
 OutputBaseFilename=TuneSync-{#AppVersion}-setup
 Compression=lzma2/max
@@ -75,6 +77,7 @@ Name: "{commonappdata}\TuneSync"; Permissions: users-modify
 Source: "{#Dist}\TuneSync_Control.dll"; DestDir: "{code:ModulesDir}"; Flags: ignoreversion
 Source: "{#Dist}\BUILD.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "lv1-prefs.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\logo\tunesync.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 ; As the user who started the setup (LV1's preferences are per user).

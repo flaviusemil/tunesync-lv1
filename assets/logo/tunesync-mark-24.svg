@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="TuneSync">
+  <title>TuneSync</title>
+  <!-- 24 px redraw: 3 px tines and stem on whole pixels (glyph sits half a pixel right of centre) -->
+  <rect width="24" height="24" rx="5.25" fill="#1f2228"/>
+  <path fill="#3fb37f" d="M6 2h3V8.5a3.5 3.5 0 0 0 7 0V2h3V8.5A6.5 6.5 0 0 1 14 14.82V19h-3V14.82A6.5 6.5 0 0 1 6 8.5Z"/>
+  <ellipse cx="10.11" cy="19" rx="4" ry="2.9" transform="rotate(-20 10.11 19)" fill="#e8eaed"/>
+</svg>

@@ -23,7 +23,7 @@ if [ $SIGN = 1 ]; then
         'printf "%s" "Z:\\work\\TuneSync_Control.dll" > /tmp/p; /usr/local/bin/hl-sign "$(cat /tmp/p)"; cat /work/sign.done; rm -f /work/sign.done; chown $HOST_UID /work/*'
 fi
 docker run --rm -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "${MOUNTS[@]}" \
-    -v "$ROOT/installer":/src/installer:ro -v "$ROOT/dist":/dist:ro -v "$ROOT/dist":/work \
+    -v "$ROOT/installer":/src/installer:ro -v "$ROOT/assets":/src/assets:ro -v "$ROOT/dist":/dist:ro -v "$ROOT/dist":/work \
     headlink-inno:1 iscc /src/installer/tunesync.iss "/DAppVersion=$VER" "/DBuild=$BUILD" '/DDist=Z:\dist' '/DOutDir=Z:\work' "${SIGNARGS[@]}"
 rm -f "$ROOT/dist/sign.log" "$ROOT/dist/sign.req" "$ROOT/dist/sign.done"
 ls -l "$ROOT/dist/TuneSync-$VER-setup.exe"

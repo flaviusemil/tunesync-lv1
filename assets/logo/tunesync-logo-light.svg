@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 608 168" role="img" aria-label="TuneSync">
+  <title>TuneSync</title>
+  <!-- mark: the drawing from tunesync-mark.svg at 2.25x -->
+  <g transform="scale(2.25)">
+    <rect width="64" height="64" rx="14" fill="#1f2228"/>
+    <path fill="#3fb37f" d="M18 7h7V21.5a7.5 7.5 0 0 0 15 0V7h7V21.5A14.5 14.5 0 0 1 37.89 34.96A3 3 0 0 0 36 37.75V49h-7V37.75A3 3 0 0 0 27.11 34.96A14.5 14.5 0 0 1 18 21.5Z"/>
+    <ellipse cx="27.32" cy="50.5" rx="9" ry="6.4" transform="rotate(-22 27.32 50.5)" fill="#e8eaed"/>
+  </g>
+  <!-- wordmark: own letterforms, no font. Weight 9, cap height 70, x-height 50.
+       u, n and y reuse the fork's U-bend (r 20/11); e and c are one circle (r 26/17). -->
+  <g transform="translate(180 36)">
+    <g fill="#16181c">
+      <path d="M0 0h44v9H26.5V70h-9V9H0Z"/>
+      <path d="M37.5 20h9V51a11 11 0 0 0 22 0V20h9V51a20 20 0 0 1-40 0Z"/>
+      <path d="M91.5 70V39a20 20 0 0 1 40 0V70h-9V39a11 11 0 0 0-22 0V70Z"/>
+      <path d="M192.11 49.5A26 26 0 1 0 186.42 61.71L179.52 55.93A17 17 0 0 1 150.11 49.5ZM150.11 40.5A17 17 0 0 1 182.89 40.5Z"/>
+    </g>
+    <g fill="#2b7d59">
+      <path d="M240.53 7.15A20.18 18.5 0 1 0 213.47 33.39L230.43 42.66A12.3 10.5 0 1 1 213.6 57.37L206.14 62.4A21.3 19.5 0 1 0 234.71 34.75L217.75 25.49A11.18 9.5 0 1 1 233.07 12.19Z"/>
+      <path d="M255.5 20h9V51a11 11 0 0 0 22 0V20h9V70a20 20 0 0 1-20 20H263.5v-9H275.5a11 11 0 0 0 11-11V67.7A20 20 0 0 1 255.5 51Z"/>
+      <path d="M309.5 70V39a20 20 0 0 1 40 0V70h-9V39a11 11 0 0 0-22 0V70Z"/>
+      <path d="M403.82 27.6A26 26 0 1 0 403.82 62.4L397.13 56.38A17 17 0 1 1 397.13 33.62Z"/>
+    </g>
+  </g>
+</svg>

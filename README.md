@@ -1,4 +1,9 @@
-<h1 align="center">TuneSync</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/tunesync-logo.svg">
+    <img src="assets/logo/tunesync-logo-light.svg" width="440" alt="TuneSync">
+  </picture>
+</p>
 
 <p align="center">
   <strong>Change the key of every Waves Tune Real-Time in eMotion LV1 with one MIDI note.</strong>
