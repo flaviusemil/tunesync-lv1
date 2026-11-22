@@ -1,6 +1,6 @@
 [package]
 name = "tunesync-sim"
-description = "A fake eMotion LV1 for testing TuneSync_Control.dll without LV1: MixerCoreSG.dll (the seven host callbacks over in-memory Tunes) and lv1sim.exe (loads the driver like LV1 does)"
+description = "A fake eMotion LV1 for testing TuneSync without LV1: MixerCoreSG (the seven host callbacks over in-memory Tunes) and lv1sim (loads the driver like LV1 does), on Windows/Wine and macOS"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -21,7 +21,7 @@ path = "src/bin/lv1sim.rs"
 [dependencies]
 lv1-surface = { path = "../lv1-surface" }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 rtpmidi = { path = "../rtpmidi" }
 
 [target.'cfg(windows)'.dependencies.windows-sys]

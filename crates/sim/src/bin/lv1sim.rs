@@ -1,8 +1,10 @@
 //! lv1sim - loads TuneSync_Control.dll the way eMotion LV1 does and drives it end to end,
-//! against the fake MixerCoreSG.dll beside it. Runs on Windows or under Wine:
+//! against the fake MixerCoreSG.dll beside it. Runs on Windows or under Wine (and on
+//! macOS with TuneSync_Control.bundle: see `src/mac_sim.rs`):
 //!
 //! ```text
 //! lv1sim.exe [--window <seconds>]     both DLLs next to it; exit code 0 = every check passed
+//! lv1sim [--window <s>] [--shot <prefix>] [--bundle <path>] [--core <libmixercoresg.dylib>]   (macOS)
 //! ```
 //!
 //! 1. resolve the 18 WMSD_* exports, check the interface version and the controller info;
@@ -13,10 +15,19 @@
 //! 4. optionally open the settings window for a while (a screenshot can be taken);
 //! 5. Destroy (bounded), and print TuneSync's log.
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn main() {
-    eprintln!("lv1sim runs on Windows (or under Wine)");
+    eprintln!("lv1sim runs on Windows (or under Wine) and on macOS");
     std::process::exit(2);
+}
+
+#[cfg(target_os = "macos")]
+#[path = "../mac_sim.rs"]
+mod mac;
+
+#[cfg(target_os = "macos")]
+fn main() {
+    std::process::exit(mac::run());
 }
 
 #[cfg(windows)]
