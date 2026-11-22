@@ -180,11 +180,24 @@ the Mac version only adds a shell.
 |---|---|
 | `crates/tunesync` | The library, with no OS or LV1 in it: Tune tables and spelling, the MIDI-to-intent mapper and coalescer, discovery and apply against a `Mixer` trait, the engine, settings (ini), the log ring. Tested on Linux with a fake mixer. |
 | `crates/rtpmidi` | RTP-MIDI. The codec is a port of Headlink's `tools/preprobe/rtpmidi.*` (`demo/pre-probe`), same test vectors. preprobe's session talks to a single peer, so it is replaced by one that keeps a table of participants keyed by SSRC: invitation on the control port then the data port, CK answered or run, RS feedback, BY and a silence timeout, all per peer, in both roles (they invite us, or we invite a Mac). Tested with raw-byte fake peers on loopback. `examples/rtpsend` is a stand-in playback rig. |
-| `crates/lv1-surface` | (next) LV1's surface-driver interface (WMSD, interface 6) in Rust: the packed structs from Headlink's `tools/surfaceprobe/wmsd_abi.h`, a macro that generates the 18 exports, the callback-table check, and calls into LV1 behind a crash guard (a small C shim, because Rust has no `__try`). |
-| `crates/control` | (next) `TuneSync_Control.dll`: the shim. A `Mixer` on LV1's Get/SetMixerControl, local MIDI by name, DNS-SD, the settings window and the worker threads, started from the surface's Create. |
-| `crates/sim` | (next) A fake LV1 (`MixerCoreSG.dll` with the seven callbacks, plus a host that loads the DLL like LV1 does), to run the DLL under Wine before the rig. |
+| `crates/lv1-surface` | LV1's surface-driver interface (WMSD, interface 6) in Rust: the packed structs from Headlink's `tools/surfaceprobe/wmsd_abi.h`, a macro that generates the 18 exports, the callback-table check, and calls into LV1 behind a crash guard (a small C shim, because Rust has no `__try`). |
+| `crates/host` | TuneSync running: the engine's worker (the only caller into the `Mixer`), local MIDI by name (WinMM), the RTP-MIDI service with DNS-SD (Windows dnsapi, looked up at run time), `settings.ini` and `tunesync.log`. Tested on Linux end to end with a fake LV1 and a real RTP-MIDI rig on loopback. |
+| `crates/ui` | The settings window as a portable view model: layout, tap regions, taps and drags to commands. `examples/preview` renders every state as SVG. |
+| `crates/control` | `TuneSync_Control.dll`: the shim. A `Mixer` on LV1's Get/SetMixerControl (Touch, Control, wait for LV1's asynchronous set to show, Release), one TuneSync per LV1, and the Direct2D window painting the ui frames on its own thread. |
+| `crates/sim` | A fake LV1: `MixerCoreSG.dll` (the seven callbacks over three Tunes; sets land 1 ms later, as LV1's do) and `lv1sim.exe`, which loads the DLL like LV1 does and drives it end to end. `tools/wine/run-sim.sh` runs it under Wine. |
+| `installer/` | Inno Setup script (`tools/make-installer.sh`) and `lv1-prefs.ps1`, which adds or removes the `<SurfaceDriver>` entry. |
 
-Build and test: `tools/cargo.sh test --workspace` runs cargo in the `tunesync-build:1` image
+**Build and test**
+- `tools/cargo.sh test --workspace`: every crate's tests on Linux.
+- `tools/build-dll.sh`: `dist/TuneSync_Control.dll` (+ the fake LV1).
+- `tools/wine/run-sim.sh [--window 6 --shot <dir>]`: the DLL under Wine against the fake LV1
+  (exports, Create, a rig over RTP-MIDI, Lock, Touch/Release pairs, Destroy; optionally the
+  window, captured through GDI). Wine 8 lacks `bcryptprimitives.dll` (Rust's std needs
+  `ProcessPrng`), so the script puts a test-only stub beside the exe. Wine's DirectWrite draws
+  no text without Segoe UI: check text on Windows.
+- `tools/make-installer.sh [--sign]`: `dist/TuneSync-<version>-setup.exe`.
+
+`tools/cargo.sh` runs cargo in the `tunesync-build:1` image
 (`tools/docker/Dockerfile`: Rust with the `x86_64-pc-windows-msvc` target, on a base with
 clang-cl, lld-link and Microsoft's CRT/SDK fetched by xwin, `tools/docker/xwin.Dockerfile`).
 
