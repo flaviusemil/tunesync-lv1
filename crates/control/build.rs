@@ -1,9 +1,14 @@
-// The DLL's version resource (Windows): written here with the crate's version and
-// compiled with llvm-rc (no preprocessor needed), then handed to lld-link. Skipped with a
-// warning where llvm-rc is missing.
+// macOS: the dylib's install name. Windows: the DLL's version resource, written here
+// with the crate's version and compiled with llvm-rc (no preprocessor needed), then
+// handed to lld-link. Skipped with a warning where llvm-rc is missing.
 use std::process::Command;
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        // The bundle's executable, not a library anyone links against: name it as such.
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-install_name,@rpath/TuneSync_Control");
+        return;
+    }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }

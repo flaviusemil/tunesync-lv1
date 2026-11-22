@@ -2,8 +2,9 @@
 //! [`tunesync_host::Runtime`] with a [`mixer::Lv1Mixer`] on LV1's callbacks, the settings
 //! button opens the window, Destroy stops it all.
 //!
-//! LV1 loads every `Modules\*Control.dll`; `tools/build-dll.sh` writes this crate's
-//! cdylib as `TuneSync_Control.dll`.
+//! LV1 loads every `Modules\*Control.dll` (Windows) and `Modules/*Control.bundle` (macOS);
+//! `tools/build-dll.sh` writes this crate's cdylib as `TuneSync_Control.dll`, and
+//! `tools/build-mac.sh` puts it in `TuneSync_Control.bundle`.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -15,7 +16,14 @@ use tunesync_host::{Runtime, RuntimeConfig};
 
 pub mod mixer;
 pub mod model;
+#[cfg(target_os = "macos")]
+mod objc;
+#[cfg(target_os = "macos")]
+mod paint_mac;
 #[cfg(windows)]
+pub mod window;
+#[cfg(target_os = "macos")]
+#[path = "window_mac.rs"]
 pub mod window;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -70,7 +78,7 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 pub struct TuneSync {
     rt: Arc<Runtime>,
     lv1: Arc<Lv1>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     window: window::Window,
 }
 
@@ -96,7 +104,7 @@ impl SurfaceDriver for TuneSync {
             rt.log().add(Level::Info, format!("{PICTURE} is not beside the DLL: LV1 shows its own picture on TuneSync's tile"));
         }
         Some(TuneSync {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             window: window::Window::new(rt.clone(), {
                 let l3 = lv1.clone();
                 Arc::new(move || l3.fault().map(|c| format!("LV1 refused a control call (0x{c:08X}); TuneSync is passive until LV1 restarts")))
@@ -111,12 +119,12 @@ impl SurfaceDriver for TuneSync {
     }
 
     fn show_config_window(&self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         self.window.show();
     }
 
     fn destroy(&self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         self.window.stop();
         // The worker finishes the change it is applying (bounded), then LV1 is shut out:
         // a Touch is never left without its Release.
