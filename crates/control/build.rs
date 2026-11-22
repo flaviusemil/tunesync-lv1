@@ -40,6 +40,10 @@ END
         b = n[1],
         c = n[2]
     );
+    // The window's icon, when the logo exists (assets/logo/tunesync.ico).
+    let ico = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../assets/logo/tunesync.ico");
+    println!("cargo:rerun-if-changed={}", ico.display());
+    let rc = if ico.exists() { format!("1 ICON \"{}\"\n{rc}", ico.canonicalize().unwrap().display()) } else { rc };
     let src = out.join("version.rc");
     let res = out.join("version.res");
     std::fs::write(&src, rc).unwrap();

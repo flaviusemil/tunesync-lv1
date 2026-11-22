@@ -579,7 +579,16 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
         }
         let Ok(d2d) = D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) else { return };
         let Ok(dw) = DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) else { return };
-        let inst = GetModuleHandleW(None).unwrap_or_default();
+        // TuneSync's own module (not LV1's exe): the class and the icon resource live there.
+        let mut inst = windows::Win32::Foundation::HMODULE::default();
+        let _ = windows::Win32::System::LibraryLoader::GetModuleHandleExW(
+            windows::Win32::System::LibraryLoader::GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | windows::Win32::System::LibraryLoader::GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            PCWSTR(wndproc as *const () as *const u16),
+            &mut inst,
+        );
+        let icon = |size: i32| {
+            LoadImageW(inst, PCWSTR(1 as *const u16), IMAGE_ICON, size, size, LR_SHARED).map(|h| HICON(h.0)).unwrap_or_default()
+        };
         let class = w!("TuneSyncWindow");
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -587,6 +596,8 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             lpfnWndProc: Some(wndproc),
             hInstance: inst.into(),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            hIcon: icon(32),
+            hIconSm: icon(16),
             lpszClassName: class,
             ..Default::default()
         };
