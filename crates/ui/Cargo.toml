@@ -1,0 +1,9 @@
+[package]
+name = "tunesync-ui"
+description = "TuneSync's settings window as a portable view model: layout, hit regions, taps -> commands; an SVG renderer for previews and tests"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tunesync = { path = "../tunesync" }
