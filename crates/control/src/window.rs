@@ -602,7 +602,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             ..Default::default()
         };
         RegisterClassExW(&wc);
-        let title = wide(&format!("TuneSync {}", crate::VERSION));
+        let title = wide("TuneSync");
         let Ok(hwnd) = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
