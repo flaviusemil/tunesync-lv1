@@ -33,12 +33,29 @@ name = "tunesync"
 version = "0.1.0"
 
 [[package]]
+name = "tunesync-control"
+version = "0.1.0"
+dependencies = [
+ "lv1-surface",
+ "tunesync",
+ "tunesync-host",
+]
+
+[[package]]
 name = "tunesync-host"
 version = "0.1.0"
 dependencies = [
  "rtpmidi",
  "tunesync",
  "windows-sys",
+]
+
+[[package]]
+name = "tunesync-sim"
+version = "0.1.0"
+dependencies = [
+ "lv1-surface",
+ "rtpmidi",
 ]
 
 [[package]]

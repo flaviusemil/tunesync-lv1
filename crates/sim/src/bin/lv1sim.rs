@@ -1,0 +1,209 @@
+//! lv1sim - loads TuneSync_Control.dll the way eMotion LV1 does and drives it end to end,
+//! against the fake MixerCoreSG.dll beside it. Runs on Windows or under Wine:
+//!
+//! ```text
+//! lv1sim.exe [--window <seconds>]     both DLLs next to it; exit code 0 = every check passed
+//! ```
+//!
+//! 1. resolve the 18 WMSD_* exports, check the interface version and the controller info;
+//! 2. Create with MixerCoreSG's seven wrappers (the real callback-table check runs);
+//! 3. wait for the first scan, then join TuneSync's RTP-MIDI session as a playback rig and
+//!    send CC 20 = 4 + Note On D: the two Rcv Tunes go to D Harmonic Minor (Eb keeps its
+//!    flat spelling: D stays D), the Lock one is untouched, every Touch has its Release;
+//! 4. optionally open the settings window for a while (a screenshot can be taken);
+//! 5. Destroy (bounded), and print TuneSync's log.
+
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("lv1sim runs on Windows (or under Wine)");
+    std::process::exit(2);
+}
+
+#[cfg(windows)]
+fn main() {
+    std::process::exit(win::run());
+}
+
+#[cfg(windows)]
+mod win {
+    use std::ffi::c_void;
+    use std::time::{Duration, Instant};
+
+    use lv1_surface::abi::{ControllerInfo, CoreCallbacks, HostFn, CALLBACK_EXPORTS};
+    use rtpmidi::session::{PeerState, Session, SessionConfig};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryW(name: *const u16) -> *mut c_void;
+        fn GetProcAddress(m: *mut c_void, name: *const u8) -> *mut c_void;
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain([0]).collect()
+    }
+
+    unsafe fn sym<T>(m: *mut c_void, name: &str) -> T {
+        let c: Vec<u8> = name.bytes().chain([0]).collect();
+        let p = GetProcAddress(m, c.as_ptr());
+        assert!(!p.is_null(), "{name} is not exported");
+        std::mem::transmute_copy(&p)
+    }
+
+    struct Checks(u32, u32);
+    impl Checks {
+        fn check(&mut self, ok: bool, what: &str) {
+            if ok {
+                self.0 += 1;
+                println!("ok    {what}");
+            } else {
+                self.1 += 1;
+                println!("FAIL  {what}");
+            }
+        }
+    }
+
+    fn wait_for(ms: u64, mut f: impl FnMut() -> bool) -> bool {
+        let end = Instant::now() + Duration::from_millis(ms);
+        while Instant::now() < end {
+            if f() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    pub fn run() -> i32 {
+        let window_secs: u64 = std::env::args().skip_while(|a| a != "--window").nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let mut c = Checks(0, 0);
+        let dir = std::env::temp_dir().join(format!("tunesync-sim-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("TUNESYNC_DIR", &dir);
+        const PORT: u16 = 47004;
+        std::fs::write(dir.join("settings.ini"), format!("[tune-remote]\nrtp_enabled=1\nrtp_port={PORT}\nchannel=16\nscale_cc=20\n")).unwrap();
+        println!("lv1sim: data folder {}", dir.display());
+
+        unsafe {
+            // LV1 has MixerCoreSG loaded before any driver.
+            let core_dll = LoadLibraryW(wide("MixerCoreSG.dll").as_ptr());
+            assert!(!core_dll.is_null(), "MixerCoreSG.dll (the fake) not found next to lv1sim.exe");
+            let drv = LoadLibraryW(wide("TuneSync_Control.dll").as_ptr());
+            assert!(!drv.is_null(), "TuneSync_Control.dll not found next to lv1sim.exe");
+
+            type V = unsafe extern "C" fn() -> i32;
+            type Info = unsafe extern "C" fn(*mut ControllerInfo) -> i32;
+            type Create = unsafe extern "C" fn(*const u8, *mut c_void, *const CoreCallbacks, *mut c_void, *const c_void, *mut bool) -> *mut c_void;
+            type Ctrl = unsafe extern "C" fn(*mut c_void) -> i32;
+            type Destroy = unsafe extern "C" fn(*mut c_void, bool) -> i32;
+            type Preset = unsafe extern "C" fn(*mut c_void, *mut u8, u32, *mut u32, *mut u8, u32) -> i32;
+            for n in [
+                "WMSD_QueryInterfaceVersion", "WMSD_GetAvailableControllerInfo", "WMSD_TestControllerForType", "WMSD_CreateControllerForType",
+                "WMSD_InitControllerForType", "WMSD_GetTypeForController", "WMSD_DestroyController", "WMSD_ShowConfigWindow", "WMSD_LockConfigWindow",
+                "WMSD_UnlockConfigWindow", "WMSD_IdentifyController", "WMSD_GetPreset", "WMSD_SetPreset", "WMSD_CommandStatusUpdate",
+                "WMSD_MixerParamWasChanged", "WMSD_MixerAssignmentsChanged", "WMSD_ControllerDisplayUpdate", "WMSD_MixerMessageSent",
+            ] {
+                let c2: Vec<u8> = n.bytes().chain([0]).collect();
+                assert!(!GetProcAddress(drv, c2.as_ptr()).is_null(), "{n} missing");
+            }
+            c.check(true, "all 18 WMSD_* exports resolve");
+            let version: V = sym(drv, "WMSD_QueryInterfaceVersion");
+            c.check(version() == 6, "interface version 6");
+            let mut info: ControllerInfo = std::mem::zeroed();
+            let get_info: Info = sym(drv, "WMSD_GetAvailableControllerInfo");
+            get_info(&mut info);
+            let name = String::from_utf8_lossy(&info.name[..info.name.iter().position(|&b| b == 0).unwrap_or(0)]).to_string();
+            let ty = String::from_utf8_lossy(&info.type_[..info.type_.iter().position(|&b| b == 0).unwrap_or(0)]).to_string();
+            c.check(name == "TuneSync" && ty == "TuneSync", &format!("controller info: name \"{name}\", type \"{ty}\""));
+
+            // The callback table, as LV1 builds it: MixerCoreSG's exported wrappers.
+            let ptrs: Vec<Option<HostFn>> = CALLBACK_EXPORTS.iter().map(|n| Some(sym::<HostFn>(core_dll, n))).collect();
+            let cb = CoreCallbacks {
+                set_mixer_control: ptrs[0],
+                get_mixer_control: ptrs[1],
+                set_mixer_assignments: ptrs[2],
+                get_mixer_assignments: ptrs[3],
+                set_mixer_param: ptrs[4],
+                get_mixer_param: ptrs[5],
+                send_mixer_command: ptrs[6],
+            };
+            let reset: unsafe extern "C" fn() = sym(core_dll, "fakecore_reset");
+            let param: unsafe extern "C" fn(u32, u32, u32, u32) -> f64 = sym(core_dll, "fakecore_param");
+            let counts: unsafe extern "C" fn(*mut u64) = sym(core_dll, "fakecore_counts");
+            let count = || {
+                let mut v = [0u64; 4];
+                counts(v.as_mut_ptr());
+                v
+            };
+            reset();
+
+            let create: Create = sym(drv, "WMSD_CreateControllerForType");
+            let mut core_obj = [0u8; 64]; // LV1's core: opaque to the driver, passed back to the callbacks
+            let t0 = Instant::now();
+            let ctrl = create(b"LV1\0".as_ptr(), core_obj.as_mut_ptr() as *mut c_void, &cb, std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut());
+            c.check(!ctrl.is_null(), &format!("Create returned a controller in {} ms", t0.elapsed().as_millis()));
+            c.check(t0.elapsed() < Duration::from_millis(200), "Create did not block LV1's thread");
+            c.check(wait_for(5000, || count()[0] > 160 * 8), &format!("the first scan ran ({} reads)", count()[0]));
+
+            // A playback rig joins the session and sends the cue.
+            let rig = Session::new();
+            rig.open(SessionConfig { name: "lv1sim rig".into(), port: PORT + 100, ..Default::default() }).unwrap();
+            rig.invite("127.0.0.1", PORT, "");
+            let joined = wait_for(5000, || {
+                rig.poll(5);
+                rig.peers().iter().any(|p| p.state == PeerState::Connected)
+            });
+            c.check(joined, "a rig joined TuneSync's RTP-MIDI session");
+            let t1 = Instant::now();
+            rig.send(&[&[0xBF, 20, 4], &[0x9F, 62, 100]]);
+            let applied = wait_for(3000, || {
+                rig.poll(5);
+                param(0, 42, 0, 40) == 3.0 && param(0, 43, 2, 40) == 3.0
+            });
+            c.check(applied, &format!("CC 20 = 4 + Note On D: Ch 43 and Ch 44 -> D in {} ms", t1.elapsed().as_millis()));
+            c.check(param(0, 42, 0, 39) == 4.0 && param(0, 43, 2, 39) == 4.0, "both on Harmonic Minor");
+            c.check(param(0, 44, 0, 40) == 8.0 && param(0, 44, 0, 39) == 2.0, "the Lock Tune (Ch 45) untouched");
+            wait_for(500, || false);
+            let n = count();
+            c.check(n[1] == 4 && n[2] == n[3] && n[2] == 4, &format!("4 Controls, every Touch released (touch {} release {})", n[2], n[3]));
+
+            // A note on another channel changes nothing.
+            rig.send(&[&[0x90, 64, 100]]);
+            wait_for(300, || {
+                rig.poll(5);
+                false
+            });
+            c.check(param(0, 42, 0, 40) == 3.0, "a note on channel 1 is ignored");
+
+            let preset: Preset = sym(drv, "WMSD_GetPreset");
+            let mut size = 0u32;
+            preset(ctrl, std::ptr::null_mut(), 0, &mut size, std::ptr::null_mut(), 0);
+            c.check(size == 8, "GetPreset size query");
+
+            if window_secs > 0 {
+                let show: Ctrl = sym(drv, "WMSD_ShowConfigWindow");
+                let t2 = Instant::now();
+                show(ctrl);
+                c.check(t2.elapsed() < Duration::from_millis(100), "ShowConfigWindow returned at once");
+                wait_for(window_secs * 1000, || {
+                    rig.poll(20);
+                    false
+                });
+            }
+
+            rig.close();
+            let destroy: Destroy = sym(drv, "WMSD_DestroyController");
+            let t3 = Instant::now();
+            destroy(ctrl, false);
+            c.check(t3.elapsed() < Duration::from_millis(3000), &format!("Destroy finished in {} ms", t3.elapsed().as_millis()));
+        }
+        let log = std::fs::read_to_string(dir.join("tunesync.log")).unwrap_or_default();
+        println!("---- tunesync.log\n{log}----");
+        c.check(log.contains("D Harmonic Minor: set 2") && log.contains("skipped 1 locked"), "the change is in the log");
+        println!("lv1sim: {} passed, {} failed", c.0, c.1);
+        if c.1 == 0 {
+            0
+        } else {
+            1
+        }
+    }
+}

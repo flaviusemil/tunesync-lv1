@@ -1,0 +1,21 @@
+[package]
+name = "tunesync-sim"
+description = "A fake eMotion LV1 for testing TuneSync_Control.dll without LV1: MixerCoreSG.dll (the seven host callbacks over in-memory Tunes) and lv1sim.exe (loads the driver like LV1 does)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The fake MixerCoreSG.dll. GetModuleHandle is case-insensitive, so mixercoresg.dll is
+# found under LV1's name; tools/build-dll.sh copies it as MixerCoreSG.dll.
+[lib]
+name = "mixercoresg"
+crate-type = ["cdylib"]
+path = "src/fakecore.rs"
+
+[[bin]]
+name = "lv1sim"
+path = "src/bin/lv1sim.rs"
+
+[dependencies]
+lv1-surface = { path = "../lv1-surface" }
+rtpmidi = { path = "../rtpmidi" }

@@ -10,7 +10,7 @@
 # Build and test: tools/cargo.sh (runs in the tune-remote-rust:1 image).
 [workspace]
 resolver = "2"
-members = ["crates/tunesync", "crates/rtpmidi", "crates/lv1-surface", "crates/host"]
+members = ["crates/tunesync", "crates/rtpmidi", "crates/lv1-surface", "crates/host", "crates/control", "crates/sim"]
 
 [workspace.package]
 version = "0.1.0"
