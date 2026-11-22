@@ -336,8 +336,8 @@ but none has run on a Mac yet.
 - It is ad-hoc signed: one signature per slice, sealing `Info.plist` and the resources, the
   same as `codesign -s -`.
 
-LV1 has no hardened runtime, so library validation does not apply and an ad-hoc signature
-is enough. On Apple silicon the kernel requires some signature on arm64 code, and the ad-hoc
+LV1 has no hardened runtime (code-signature flags 0x0, no entitlements in 17.3.50), so
+library validation does not apply and an ad-hoc signature is enough. On Apple silicon the kernel requires some signature on arm64 code, and the ad-hoc
 one meets that. Waves' own WING module is linker-signed only (Headlink's `docs/MAC.md`).
 A browser download carries the quarantine flag, so `install.sh` removes it from the bundle.
 
@@ -394,6 +394,11 @@ stays on the feeder.
   - closing it only hides it.
 - There is one NSWindow per process. It is kept, hidden, when LV1 destroys the surface, and
   a surface made again (a session load) reattaches to it.
+- Every AppKit handler is guarded. A panic is caught there, because one that unwinds into
+  AppKit aborts LV1. A handler that AppKit calls back from inside one of our own AppKit
+  calls returns without touching the window's state, which its caller holds. Two examples
+  are makeFirstResponder ending an edit and makeKeyAndOrderFront drawing at once.
+- When it had to float above a floating Setup, it hides while LV1 is in the background.
 
 **Settings and log.** `/Library/Application Support/TuneSync`, made by `install.sh`
 (group staff, mode 2775) so that LV1 running as any local user can write it. When that
@@ -443,6 +448,18 @@ It loads the bundle with CFBundle, as LV1 does, against the fake MixerCoreSG
 the PNGs. It needs someone logged in at the Mac for the window; `--headless` runs without it.
 `tools/mac/rig-test.sh check|install|cue|log|remove` covers the steps in the real LV1. The
 steps that need the screen are listed in its header.
+
+**The callback table check** works as on Windows. LV1's executable links
+`@rpath/MixerCoreSG.framework`, so MixerCoreSG's `*Wrapper` exports are in the global
+namespace that `dlsym(RTLD_DEFAULT)` searches. One difference from Windows: a call into
+LV1 has no fault guard on the Mac, because there is no SEH there. A bad callback would
+crash LV1 instead of leaving the surface passive.
+
+**Review (2026-11-23).** An independent read of every Mac FFI declaration and `msg!` call
+(types, struct passing, stret, ownership, threading) found no ABI or memory error. It did
+find a wrong CoreText truncation constant (text was cut in the middle), panics possible in
+AppKit handlers, a re-entrant `&mut` window state, a floating window staying above other
+apps, and a session name lost at Destroy. All are fixed.
 
 **Not verified yet.** Nothing has run on a Mac:
 - the bundle loading in LV1;

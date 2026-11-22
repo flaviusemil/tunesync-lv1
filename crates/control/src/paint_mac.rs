@@ -68,7 +68,7 @@ extern "C" {
     static kCTForegroundColorFromContextAttributeName: CFStringRef;
 }
 
-const TRUNCATE_END: u32 = 2; // kCTLineTruncationEnd
+const TRUNCATE_END: u32 = 1; // kCTLineTruncationEnd (Start 0, End 1, Middle 2)
 
 /// NSFont's weights (NSFontWeightRegular, Medium, Semibold, Bold) for CSS-style numbers.
 fn ns_weight(w: u16) -> f64 {
@@ -105,7 +105,7 @@ pub fn ns_font(mono: bool, size: f64, weight: u16) -> Id {
         let w = ns_weight(weight);
         let f: Id = if !mono {
             msg![Id; nsfont, "systemFontOfSize:weight:", size => f64, w => f64]
-        } else if msg![bool; nsfont, "respondsToSelector:", sel(c"monospacedSystemFontOfSize:weight:") => *const c_void] {
+        } else if msg![i8; nsfont, "respondsToSelector:", sel(c"monospacedSystemFontOfSize:weight:") => *const c_void] != 0 {
             msg![Id; nsfont, "monospacedSystemFontOfSize:weight:", size => f64, w => f64]
         } else {
             msg![Id; nsfont, "userFixedPitchFontOfSize:", size => f64]
@@ -212,17 +212,18 @@ impl Painter {
                             CGContextFillPath(ctx);
                             CGPathRelease(p);
                         }
-                        if let Some(s) = stroke {
-                            let inner = NSRect::new(nr.origin.x + 0.5, nr.origin.y + 0.5, (nr.size.w - 1.0).max(0.0), (nr.size.h - 1.0).max(0.0));
-                            let rad = rad.min(inner.size.w / 2.0).min(inner.size.h / 2.0);
-                            let p = CGPathCreateWithRoundedRect(inner, rad, rad, std::ptr::null());
-                            if !p.is_null() {
-                                CGContextSetStrokeColor(ctx, rgba(*s).as_ptr());
-                                CGContextSetLineWidth(ctx, 1.0);
-                                CGContextAddPath(ctx, p);
-                                CGContextStrokePath(ctx);
-                                CGPathRelease(p);
-                            }
+                    }
+                    if let Some(s) = stroke {
+                        // a 1 pt line just inside the box, as Direct2D draws it
+                        let inner = NSRect::new(nr.origin.x + 0.5, nr.origin.y + 0.5, (nr.size.w - 1.0).max(0.0), (nr.size.h - 1.0).max(0.0));
+                        let rad = rad.min(inner.size.w / 2.0).min(inner.size.h / 2.0);
+                        let p = CGPathCreateWithRoundedRect(inner, rad, rad, std::ptr::null());
+                        if !p.is_null() {
+                            CGContextSetStrokeColor(ctx, rgba(*s).as_ptr());
+                            CGContextSetLineWidth(ctx, 1.0);
+                            CGContextAddPath(ctx, p);
+                            CGContextStrokePath(ctx);
+                            CGPathRelease(p);
                         }
                     }
                 }
@@ -286,6 +287,8 @@ impl Painter {
             CGContextRestoreGState(ctx);
             clips -= 1;
         }
+        // The text matrix is not part of the graphics state: leave it as we found it.
+        CGContextSetTextMatrix(ctx, CGAffineTransform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 });
         CGContextRestoreGState(ctx);
     }
 }

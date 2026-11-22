@@ -2,9 +2,10 @@
 //! declared by hand so the crates need no bindings: CFStrings both ways, and running a
 //! closure on the main queue.
 //!
-//! Inside LV1 the main queue is LV1's own main thread (a Qt application; its event loop
-//! drains the queue in every run-loop mode, modal dialogs included). Nothing here ever
-//! waits on it: [`main_async`] only posts.
+//! Inside LV1 the main queue is LV1's own main thread (a Qt application): the main run
+//! loop drains it in the common modes, which include the default, modal-panel and
+//! event-tracking modes, so it runs during modal dialogs too. Nothing here ever waits on
+//! it: [`main_async`] only posts.
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 

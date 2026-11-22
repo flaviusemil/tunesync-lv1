@@ -152,7 +152,7 @@ pub fn run() -> i32 {
             }
         }
         let app: Id = msg![Id; cls(c"NSApplication"), "sharedApplication"];
-        msg![bool; app, "setActivationPolicy:", 1isize => isize]; // accessory: no Dock icon
+        msg![i8; app, "setActivationPolicy:", 1isize => isize]; // accessory: no Dock icon
         msg![(); app, "finishLaunching"];
         std::thread::spawn(move || {
             let rc = std::panic::catch_unwind(checks).unwrap_or(1);
@@ -223,7 +223,7 @@ unsafe fn find_window() -> Id {
         let w: Id = msg![Id; wins, "objectAtIndex:", i => usize];
         let t: Id = msg![Id; w, "title"];
         let s: *const c_char = msg![*const c_char; t, "UTF8String"];
-        if !s.is_null() && std::ffi::CStr::from_ptr(s).to_string_lossy().starts_with("TuneSync") && msg![bool; w, "isVisible"] {
+        if !s.is_null() && std::ffi::CStr::from_ptr(s).to_string_lossy().starts_with("TuneSync") && msg![i8; w, "isVisible"] != 0 {
             return w;
         }
     }
@@ -241,7 +241,7 @@ unsafe fn render(win: Id, path: &str) -> bool {
     msg![(); view, "cacheDisplayInRect:toBitmapImageRep:", b => NSRect, rep => Id];
     let props: Id = msg![Id; cls(c"NSDictionary"), "dictionary"];
     let png: Id = msg![Id; rep, "representationUsingType:properties:", 4usize => usize, props => Id]; // NSBitmapImageFileTypePNG
-    !png.is_null() && msg![bool; png, "writeToFile:atomically:", cfstr(path) as Id => Id, true => bool]
+    !png.is_null() && msg![i8; png, "writeToFile:atomically:", cfstr(path) as Id => Id, true => bool] != 0
 }
 
 /// A tap at (x, y) in the view's flipped points (main thread).

@@ -15,8 +15,15 @@
 //! new runtime. The window works while LV1 runs a modal dialog (Setup), opens at the
 //! level of LV1's key window so it is never behind it, joins a full-screen LV1's space,
 //! takes the first click even when inactive (touch-first), and closing it only hides it.
+//! When it had to float to clear LV1's Setup, it hides while LV1 is in the background.
+//!
+//! Every AppKit handler is guarded: a panic is caught there (it must never unwind into
+//! AppKit and so abort LV1), and a handler that AppKit calls back from inside one of our
+//! own AppKit calls (makeFirstResponder ending an edit, makeKeyAndOrderFront drawing at
+//! once) returns without touching the window's state, which its caller holds.
 use std::collections::VecDeque;
 use std::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -92,16 +99,19 @@ impl Window {
         main_async(move || with_pool(|| show_on_main(sh)));
     }
 
-    /// LV1 destroys the surface: hide the window and end the feeder (bounded, short).
+    /// LV1 destroys the surface: hide the window and end the feeder (bounded, short). On
+    /// the main thread (where LV1 calls it) a session name being typed is committed first,
+    /// and the feeder carries it out before it ends.
     pub fn stop(&self) {
-        self.sh.run.store(false, Ordering::SeqCst);
-        self.sh.cv.notify_all();
         let sh = self.sh.clone();
         if is_main_thread() {
             with_pool(|| detach_on_main(&sh));
+            self.sh.run.store(false, Ordering::SeqCst);
         } else {
+            self.sh.run.store(false, Ordering::SeqCst);
             main_async(move || with_pool(|| detach_on_main(&sh)));
         }
+        self.sh.cv.notify_all();
         if let Some(mut w) = self.feeder.lock().unwrap_or_else(|e| e.into_inner()).take() {
             w.join_for(Duration::from_millis(500));
         }
@@ -130,16 +140,34 @@ fn feed(sh: Arc<Shared>) {
         let m = crate::model::build(&sh.rt, (sh.problem)(), &ips);
         if forced || last.as_ref() != Some(&m) {
             last = Some(m.clone());
-            let s2 = sh.clone();
-            main_async(move || {
-                with_pool(|| {
-                    if let Some(ui) = ui_for(&s2) {
-                        ui.set_model(m);
-                    }
-                })
-            });
+            post_model(sh.clone(), m);
         }
     }
+    // The settings the window still had queued (a name committed at Destroy).
+    let rest = std::mem::take(&mut sh.q.lock().unwrap_or_else(|e| e.into_inner()).cmds);
+    for c in rest {
+        if !matches!(c, Command::ApplyNow(_) | Command::Rescan) {
+            run_command(&sh.rt, c);
+        }
+    }
+}
+
+/// Hands a new model to the window on the main queue (again later if the window's state
+/// is held just then).
+fn post_model(sh: Arc<Shared>, m: Model) {
+    main_async(move || {
+        with_pool(|| {
+            if BUSY.load(Ordering::SeqCst) {
+                post_model(sh, m);
+                return;
+            }
+            guarded((), || {
+                if let Some(ui) = ui_for(&sh) {
+                    ui.set_model(m);
+                }
+            })
+        })
+    });
 }
 
 fn run_command(rt: &Runtime, c: Command) {
@@ -179,6 +207,26 @@ struct Ui {
 
 /// The one Ui (main thread only; null when no surface owns the window).
 static UI: AtomicPtr<Ui> = AtomicPtr::new(std::ptr::null_mut());
+/// Set while main-thread code of ours holds the Ui (see the module notes).
+static BUSY: AtomicBool = AtomicBool::new(false);
+
+struct Held;
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        BUSY.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Runs `f` holding the Ui: `fallback` when it is already held (a nested call from AppKit)
+/// or when `f` panics. Every entry from AppKit and every main-queue job goes through here.
+fn guarded<T: Copy>(fallback: T, f: impl FnOnce() -> T) -> T {
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return fallback;
+    }
+    let _held = Held;
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
+}
 /// The NSWindow, its view and the session-name field, made once (main thread only).
 static NATIVE: Mutex<Option<(usize, usize, usize)>> = Mutex::new(None);
 
@@ -197,6 +245,10 @@ fn ui_of(view: Id) -> Option<&'static mut Ui> {
 }
 
 fn show_on_main(sh: Arc<Shared>) {
+    guarded((), || show_held(sh))
+}
+
+fn show_held(sh: Arc<Shared>) {
     if !sh.run.load(Ordering::SeqCst) {
         return;
     }
@@ -222,17 +274,20 @@ fn show_on_main(sh: Arc<Shared>) {
         UI.store(Box::into_raw(ui), Ordering::SeqCst);
     }
     let Some(ui) = ui_for(&sh) else { return };
+    ui.commit_field();
     sh.push(|q| {
         q.visible = true;
         q.kick = true;
         q.cmds.push_back(Command::Rescan);
     });
     unsafe {
-        // At the level of LV1's key window (a floating Setup must not cover us).
+        // At the level of LV1's key window (a floating Setup must not cover us); a window
+        // that floats hides while LV1 is in the background, so it never covers other apps.
         let app: Id = msg![Id; class(c"NSApplication"), "sharedApplication"];
         let key: Id = msg![Id; app, "keyWindow"];
         let level: isize = if key.is_null() || key == ui.win { 0 } else { msg![isize; key, "level"] };
         msg![(); ui.win, "setLevel:", level.max(0) => isize];
+        msg![(); ui.win, "setHidesOnDeactivate:", level > 0 => bool];
         msg![(); ui.win, "makeKeyAndOrderFront:", NIL => Id];
         msg![(); app, "activateIgnoringOtherApps:", true => bool];
         msg![(); ui.win, "makeFirstResponder:", ui.view => Id];
@@ -242,6 +297,10 @@ fn show_on_main(sh: Arc<Shared>) {
 
 /// The surface is going: hide the window and let go of the runtime.
 fn detach_on_main(sh: &Arc<Shared>) {
+    guarded((), || detach_held(sh))
+}
+
+fn detach_held(sh: &Arc<Shared>) {
     let Some(ui) = ui_for(sh) else { return };
     ui.commit_field();
     unsafe { msg![(); ui.win, "orderOut:", NIL => Id] };
@@ -336,7 +395,7 @@ impl Ui {
         unsafe {
             let pb: Id = msg![Id; class(c"NSPasteboard"), "generalPasteboard"];
             msg![isize; pb, "clearContents"];
-            msg![bool; pb, "setString:forType:", s.as_ptr() as Id => Id, NSPasteboardTypeString => Id];
+            msg![i8; pb, "setString:forType:", s.as_ptr() as Id => Id, NSPasteboardTypeString => Id];
         }
     }
 
@@ -368,6 +427,11 @@ extern "C" fn yes1(_this: Id, _cmd: Sel, _a: Id) -> bool {
 }
 
 extern "C" fn draw_rect(this: Id, _cmd: Sel, _dirty: NSRect) {
+    // (nested inside our own call: skipped; that call ends with setNeedsDisplay)
+    guarded((), || draw_held(this))
+}
+
+fn draw_held(this: Id) {
     let Some(ui) = ui_of(this) else {
         // no surface owns the window: just the background
         let mut p = Painter::default();
@@ -394,81 +458,99 @@ unsafe fn paint(p: &mut Painter, view: Id, items: &[tunesync_ui::draw::Item]) {
 
 /// (NSWindow has already made the view first responder, which ended any edit in the field.)
 extern "C" fn mouse_down(this: Id, _cmd: Sel, event: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    let (x, y) = ui.point(event);
-    ui.state.pointer_down(&ui.frame, x, y);
-    ui.relayout();
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
+        let (x, y) = ui.point(event);
+        ui.state.pointer_down(&ui.frame, x, y);
+        ui.relayout();
+    })
 }
 
 extern "C" fn mouse_dragged(this: Id, _cmd: Sel, event: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    let (x, y) = ui.point(event);
-    ui.state.pointer_move(x, y);
-    ui.relayout();
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
+        let (x, y) = ui.point(event);
+        ui.state.pointer_move(x, y);
+        ui.relayout();
+    })
 }
 
 extern "C" fn mouse_up(this: Id, _cmd: Sel, event: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    let (x, y) = ui.point(event);
-    ui.relayout();
-    let m = ui.model.clone();
-    let cmds = ui.state.pointer_up(&ui.frame, x, y, &m);
-    ui.run(cmds);
-    ui.relayout();
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
+        let (x, y) = ui.point(event);
+        ui.relayout();
+        let m = ui.model.clone();
+        let cmds = ui.state.pointer_up(&ui.frame, x, y, &m);
+        ui.run(cmds);
+        ui.relayout();
+    })
 }
 
 extern "C" fn scroll_wheel(this: Id, _cmd: Sel, event: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    let (x, y) = ui.point(event);
-    let (dy, precise) = unsafe { (msg![f64; event, "scrollingDeltaY"], msg![bool; event, "hasPreciseScrollingDeltas"]) };
-    // a touchpad gives points, a wheel gives lines
-    let dy = if precise { -dy } else { -dy * 24.0 };
-    ui.state.wheel(&ui.frame, x, y, dy as f32);
-    ui.relayout();
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
+        let (x, y) = ui.point(event);
+        let (dy, precise) = unsafe { (msg![f64; event, "scrollingDeltaY"], msg![i8; event, "hasPreciseScrollingDeltas"] != 0) };
+        // a touchpad gives points, a wheel gives lines
+        let dy = if precise { -dy } else { -dy * 24.0 };
+        ui.state.wheel(&ui.frame, x, y, dy as f32);
+        ui.relayout();
+    })
 }
 
 extern "C" fn key_down(this: Id, _cmd: Sel, event: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    let code: u16 = unsafe { msg![u16; event, "keyCode"] };
-    if code == KEY_ESCAPE {
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
+        let code: u16 = unsafe { msg![u16; event, "keyCode"] };
+        if code == KEY_ESCAPE {
+            ui.commit_field();
+            if !ui.state.back() {
+                ui.hide();
+            }
+            ui.relayout();
+        }
+    })
+}
+
+/// The field's Escape (and the window's): `cancelOperation:` comes up the responder chain.
+extern "C" fn cancel_operation(this: Id, _cmd: Sel, _sender: Id) {
+    guarded((), || {
+        let Some(ui) = ui_of(this) else { return };
         ui.commit_field();
         if !ui.state.back() {
             ui.hide();
         }
         ui.relayout();
-    }
-}
-
-/// The field's Escape (and the window's): `cancelOperation:` comes up the responder chain.
-extern "C" fn cancel_operation(this: Id, _cmd: Sel, _sender: Id) {
-    let Some(ui) = ui_of(this) else { return };
-    ui.commit_field();
-    if !ui.state.back() {
-        ui.hide();
-    }
-    ui.relayout();
+    })
 }
 
 extern "C" fn window_should_close(this: Id, _cmd: Sel, win: Id) -> bool {
-    if let Some(ui) = ui_of(this) {
-        ui.hide();
-    } else {
-        unsafe { msg![(); win, "orderOut:", NIL => Id] };
-    }
+    guarded((), || {
+        if let Some(ui) = ui_of(this) {
+            ui.hide();
+        } else {
+            unsafe { msg![(); win, "orderOut:", NIL => Id] };
+        }
+    });
     false // only hidden, never closed
 }
 
 extern "C" fn window_did_resize(this: Id, _cmd: Sel, _note: Id) {
-    if let Some(ui) = ui_of(this) {
-        ui.relayout();
-    }
+    guarded((), || {
+        if let Some(ui) = ui_of(this) {
+            ui.relayout();
+        }
+    })
 }
 
 /// The session-name field: Return, Tab or a click elsewhere ended the edit.
 extern "C" fn field_done(this: Id, _cmd: Sel, _x: Id) {
-    if let Some(ui) = ui_of(this) {
-        ui.commit_field();
-    }
+    guarded((), || {
+        if let Some(ui) = ui_of(this) {
+            ui.commit_field();
+        }
+    })
 }
 
 /// Our classes, registered once per load of this bundle (the names carry this copy's
@@ -531,7 +613,7 @@ fn native() -> Option<(Id, Id, Id)> {
             return None;
         }
         msg![(); win, "setReleasedWhenClosed:", false => bool];
-        let title = CfString::new(&format!("TuneSync {}", crate::VERSION));
+        let title = CfString::new("TuneSync"); // as on Windows: the log's first line has the version
         msg![(); win, "setTitle:", title.as_ptr() as Id => Id];
         msg![(); win, "setContentMinSize:", NSSize { w: WIDTH as f64, h: MIN_HEIGHT as f64 } => NSSize];
         msg![(); win, "setContentMaxSize:", NSSize { w: WIDTH as f64, h: 100_000.0 } => NSSize];
