@@ -1,0 +1,19 @@
+#!/bin/sh
+# tssign <windows path>: Authenticode-signs one file for Inno Setup's SignTool (the iscc
+# wrapper in headlink-inno:1 runs it when hl-sign.bat asks; mounted over hl-sign by
+# make-installer.sh --sign). Signs in place, timestamped, with the key mounted at /keys.
+log=/work/sign.log
+finish() { echo "$1" > /work/sign.done; exit 0; }
+p=$(printf '%s' "$1" | tr -d '"' | sed 's/ *$//')
+case "$p" in
+  [Zz]:\\*) f=$(printf '%s' "$p" | cut -c3- | tr '\\' '/') ;;
+  *) echo "tssign: not a Z: path: $1" >> "$log"; finish fail ;;
+esac
+for tsa in http://timestamp.digicert.com http://timestamp.sectigo.com http://timestamp.globalsign.com/tsa/r6advanced1; do
+  if osslsigncode sign -certs /keys/codesign.crt -key /keys/codesign.key \
+       -n TuneSync -i https://github.com/flaviusemil/tunesync-lv1 -h sha256 -ts "$tsa" -in "$f" -out "$f.signed" >/tmp/ts.log 2>&1; then
+    mv -f "$f.signed" "$f"; echo "signed $f ($tsa)" >> "$log"; finish ok
+  fi
+  rm -f "$f.signed"
+done
+echo "tssign: could not sign $f:" >> "$log"; cat /tmp/ts.log >> "$log"; finish fail
