@@ -26,7 +26,8 @@ lives with the song in the tracks session, so reordering the set can't put Tune 
 - Any other plug-in or parameter. (LV1's tempo is a mixer setting, not a plug-in parameter:
   setting it once moves every tempo-synced plug-in, so TuneSync never touches them itself.)
 - macOS in the first release. Windows comes first; LV1's surface-driver ABI is the same on Mac,
-  and a Mac version follows (Flavius, 2026-11-22: "This should work with mac too").
+  and a Mac version follows (Flavius, 2026-11-22: "This should work with mac too"). It is
+  built (see [macOS](#macos)) and waits for its test on a Mac.
 
 **Anti-goals** (failures even if everything else works)
 - Touching anything except a Tune's key and scale, and LV1's system tempo.
@@ -317,6 +318,139 @@ IPv6 link-local address (DNS-SD hands out both) and TuneSync listened on IPv4 on
 
 Not yet checked: the stereo Tune (`LVLS`).
 
+## macOS
+
+LV1 for Mac loads every `/Applications/Waves/eMotion LV1/Modules/*Control.bundle` with
+CFBundle (`CFBundleCreate`, `CFBundleLoadExecutableAndReturnError`,
+`CFBundleGetFunctionPointerForName`, all in MixerCoreSG's import table) and resolves the same
+18 `WMSD_*` exports. The structs are the same as on Windows, and so is everything above the
+shell: the `tunesync`, `rtpmidi`, `ui` crates, the runtime, the mixer on LV1's callbacks and
+the window's model. The Mac adds four pieces. All are built (`feature/macos`, 2026-11-23),
+but none has run on a Mac yet.
+
+**The bundle.** `TuneSync_Control.bundle`:
+- Its executable (`Contents/MacOS/TuneSync_Control`) is this crate's cdylib, universal
+  (x86_64 + arm64, macOS 11 or later). It is a dylib rather than an `MH_BUNDLE`; CFBundle
+  loads both with dlopen, which is how Rust plug-in bundles are usually made.
+- Its install name is `@rpath/TuneSync_Control`.
+- It is ad-hoc signed: one signature per slice, sealing `Info.plist` and the resources, the
+  same as `codesign -s -`.
+
+LV1 has no hardened runtime, so library validation does not apply and an ad-hoc signature
+is enough. On Apple silicon the kernel requires some signature on arm64 code, and the ad-hoc
+one meets that. Waves' own WING module is linker-signed only (Headlink's `docs/MAC.md`).
+A browser download carries the quarantine flag, so `install.sh` removes it from the bundle.
+
+**Threads.** AppKit runs only on the main thread, which inside LV1 is LV1's own UI thread
+(Qt). No LV1 thread ever waits on TuneSync. Every AppKit call is a job posted to the main
+queue (`dispatch_async_f`), and Qt's event loop drains that queue in every run-loop mode,
+modal dialogs included. The main thread does no TuneSync work either: a feeder thread
+builds the window's model and runs its commands, then posts the result. Building a model
+takes the runtime's locks, and an RTP-MIDI restart can hold one for a second. That wait
+stays on the feeder.
+
+**MIDI in: CoreMIDI** (`crates/host/src/midi/coremidi.rs`, from Headlink's
+`tools/preprobe/midiport.cpp`):
+- A source is chosen by its display name, as Audio MIDI Setup shows it. The generic worker
+  reopens it when a source of that name comes back.
+- The read callback only queues bytes. The MIDIPacketList walk follows `MIDIPacketNext`
+  (4-byte aligned on ARM, packed on Intel) and is tested on Linux.
+- The trap Headlink found: CoreMIDI reports sources that come and go through the run loop
+  of the thread that made the process's first client. So the client is made by a job on the
+  main queue, and the MIDI worker waits for it without blocking anyone, since LV1 may be
+  loading a session. Only after 30 s does it make the client itself.
+- The Mac's own network session (Audio MIDI Setup → Network, "Network Session 1") is a
+  CoreMIDI source too. On a Mac, LV1 can therefore take network MIDI without TuneSync's
+  RTP-MIDI. If both run, they compete for UDP 5004: give TuneSync another port.
+
+**DNS-SD: mDNSResponder** (`crates/host/src/dnssd/macos.rs`, dns_sd.h, in libSystem):
+- The same API as the Windows backend (`start`, `stop`, `found`, `advert_state`).
+- One thread owns every `DNSServiceRef`: `DNSServiceRegister` for `_apple-midi._udp`,
+  `DNSServiceBrowse`, and for each session found `DNSServiceResolve` then
+  `DNSServiceGetAddrInfo` (IPv4). It waits on their sockets with `poll()`. dns_sd calls
+  back only from `DNSServiceProcessResult` on that thread, so deallocating the refs is the
+  whole teardown, goodbye packet included.
+- mDNS keeps instance names unique on a network, so "ourselves" is the session that carries
+  the name our registration ended up with (mDNS renames ours "TuneSync (2)" on a conflict).
+- If mDNSResponder restarts, the advertisement and the browse are made again after 10 s.
+- The table of found sessions (`dnssd/book.rs`) is tested on Linux.
+- On macOS 15, browsing needs LV1's Local Network permission. LV1 needs that permission
+  for SoundGrid anyway. Not checked yet.
+
+**The window** (`crates/control/src/window_mac.rs`, `paint_mac.rs`, `objc.rs`):
+- An NSWindow with one NSView that paints the portable `tunesync_ui::view::Frame` with
+  CoreGraphics and CoreText. There are no bindings crates: the Objective-C runtime is
+  called through `objc_msgSend`, cast to each method's C type, and `objc_msgSend_stret`
+  handles NSRect returns on x86_64.
+- One point is one frame unit. Colours are sRGB. The fonts are the system font (SF) and the
+  monospaced system font for the log. Text is one line, centred, and ends in an ellipsis
+  when it does not fit.
+- The RTP session name is a real NSTextField over the frame's edit rectangle.
+- Behaviour LV1 needs:
+  - the window works while LV1 runs a modal dialog (`worksWhenModal`);
+  - it opens at the level of LV1's key window, so a floating Setup cannot cover it;
+  - it can join a full-screen LV1's space;
+  - it takes the first click even when inactive (touch-first);
+  - closing it only hides it.
+- There is one NSWindow per process. It is kept, hidden, when LV1 destroys the surface, and
+  a surface made again (a session load) reattaches to it.
+
+**Settings and log.** `/Library/Application Support/TuneSync`, made by `install.sh`
+(group staff, mode 2775) so that LV1 running as any local user can write it. When that
+folder is missing or not writable (a bundle installed without sudo), TuneSync uses
+`~/Library/Application Support/TuneSync` instead.
+
+**Install** (`installer/mac/`, shipped as `TuneSync-<version>-macos.zip`):
+- `sudo ./install.sh` copies the bundle into LV1's Modules folder, removes the quarantine
+  flag, makes the data folder and adds the surface. `--no-surface` skips the surface;
+  `--remove` takes it all out again.
+- `lv1-prefs.sh --add|--remove` is the twin of `lv1-prefs.ps1`. It edits
+  `~/Library/Preferences/…/LV1.Mixer SoundGrid.preferences` while LV1 is closed, with a
+  backup first.
+  - The location comes from MixerCoreSG's strings ("Preferences/Waves Preferences"). The
+    script searches for the file, so the exact folder is confirmed on the first Mac.
+  - The entry's `RelativePathFromApp` copies the folder style of LV1's own
+    `Modules/SurfaceDriver_App.bundle` entry.
+- Every refusal, the add/remove round trip and `install.sh` into a fake LV1 folder are
+  tested on Linux: `tools/mac/test-installer.sh`, 22 checks.
+- A notarized `.pkg` needs an Apple Developer ID. Not done.
+
+**Building without a Mac.** `tools/build-mac.sh` runs in the `tunesync-mac:1` image
+(`tools/docker/mac.Dockerfile`: the Rust Apple targets, clang-18 and ld64.lld, rcodesign).
+There is no Apple SDK in it, so `tools/mac/cc.sh` links every output twice:
+1. A probe link with `-undefined dynamic_lookup` lists the system symbols the output imports.
+2. `tools/mac/stubs.sh` sorts them into libSystem, libobjc, CoreFoundation, CoreGraphics,
+   CoreText, CoreMIDI and AppKit, and writes `.tbd` link stubs naming exactly those.
+3. The real link binds every import two-level against the stubs, as Apple's linker would.
+
+A symbol the script cannot place fails the build. The output's bind table was checked: every
+import is bound to its own library (2026-11-23). On a Mac the same script uses the Xcode
+command-line tools instead.
+
+**Testing on a Mac without LV1.** `lv1sim` has a macOS mode (`crates/sim/src/mac_sim.rs`).
+It loads the bundle with CFBundle, as LV1 does, against the fake MixerCoreSG
+(`libmixercoresg.dylib`, loaded `RTLD_GLOBAL` first), and checks:
+- the Windows checks: an RTP-MIDI rig cue, Lock untouched, Touch/Release pairs, another
+  channel ignored;
+- CoreMIDI: a virtual source "lv1sim MIDI" is TuneSync's MIDI in by name; a cue through it,
+  then an unplug and replug, and the next cue still lands;
+- the window: ShowConfigWindow from the main thread, the window found by its title, then
+  rendered to PNG by its own view (the page, the RTP-MIDI sheet after a tap, the page again
+  after Escape);
+- Destroy from the main thread, and the window hidden afterwards.
+
+`MAC=user@host tools/mac/run-sim.sh` runs it on a Mac over SSH and brings back the report and
+the PNGs. It needs someone logged in at the Mac for the window; `--headless` runs without it.
+`tools/mac/rig-test.sh check|install|cue|log|remove` covers the steps in the real LV1. The
+steps that need the screen are listed in its header.
+
+**Not verified yet.** Nothing has run on a Mac:
+- the bundle loading in LV1;
+- CoreMIDI, DNS-SD and the window in LV1's process;
+- arm64;
+- the preferences folder;
+- Local Network on macOS 15.
+
 ## Structure
 
 Rust (Flavius, 2026-11-22), one Cargo workspace. The product logic is a library and the DLL
@@ -328,12 +462,12 @@ the Mac version only adds a shell.
 | `crates/tunesync` | The library, with no OS or LV1 in it: Tune tables and spelling, the MIDI-to-intent mapper and coalescer, discovery and apply against a `Mixer` trait, the engine, settings (ini), the log ring. Tested on Linux with a fake mixer. |
 | `crates/rtpmidi` | RTP-MIDI. The codec is a port of Headlink's `tools/preprobe/rtpmidi.*` (`demo/pre-probe`), same test vectors. preprobe's session talks to a single peer, so it is replaced by one that keeps a table of participants keyed by SSRC: invitation on the control port then the data port, CK answered or run, RS feedback, BY and a silence timeout, all per peer, in both roles (they invite us, or we invite a Mac). Tested with raw-byte fake peers on loopback. `examples/rtpsend` is a stand-in playback rig. |
 | `crates/lv1-surface` | LV1's surface-driver interface (WMSD, interface 6) in Rust: the packed structs from Headlink's `tools/surfaceprobe/wmsd_abi.h`, a macro that generates the 18 exports, the callback-table check, and calls into LV1 behind a crash guard (a small C shim, because Rust has no `__try`). |
-| `crates/host` | TuneSync running: the engine's worker (the only caller into the `Mixer`), local MIDI by name (WinMM), the RTP-MIDI service with DNS-SD (Windows dnsapi, looked up at run time), `settings.ini` and `tunesync.log`. Tested on Linux end to end with a fake LV1 and a real RTP-MIDI rig on loopback. |
+| `crates/host` | TuneSync running: the engine's worker (the only caller into the `Mixer`), local MIDI by name (WinMM; CoreMIDI on macOS), the RTP-MIDI service with DNS-SD (Windows dnsapi, looked up at run time; dns_sd on macOS), `settings.ini` and `tunesync.log`. Tested on Linux end to end with a fake LV1 and a real RTP-MIDI rig on loopback. |
 | `crates/ui` | The settings window as a portable view model: layout, tap regions, taps and drags to commands. `examples/preview` renders every state as SVG. |
 | `crates/capi` | The runtime as a C library for a C/C++ host (Headlink): `tunesync_capi` as staticlib + cdylib, `include/tunesync.h` generated by cbindgen. See [C API](#c-api-headlink). |
-| `crates/control` | `TuneSync_Control.dll`: the shim. A `Mixer` on LV1's Get/SetMixerControl (Touch, Control, wait for LV1's asynchronous set to show, Release), one TuneSync per LV1, and the Direct2D window painting the ui frames on its own thread. |
-| `crates/sim` | A fake LV1: `MixerCoreSG.dll` (the seven callbacks over three Tunes; sets land 1 ms later, as LV1's do) and `lv1sim.exe`, which loads the DLL like LV1 does and drives it end to end. `tools/wine/run-sim.sh` runs it under Wine. |
-| `installer/` | Inno Setup script (`tools/make-installer.sh`) and `lv1-prefs.ps1`, which adds or removes the `<SurfaceDriver>` entry. |
+| `crates/control` | `TuneSync_Control.dll` / `TuneSync_Control.bundle`: the shim. A `Mixer` on LV1's Get/SetMixerControl (Touch, Control, wait for LV1's asynchronous set to show, Release), one TuneSync per LV1, and the window painting the ui frames: Direct2D on its own thread on Windows, AppKit + CoreGraphics on the main queue on macOS. |
+| `crates/sim` | A fake LV1: `MixerCoreSG.dll` (the seven callbacks over three Tunes; sets land 1 ms later, as LV1's do) and `lv1sim.exe`, which loads the DLL like LV1 does and drives it end to end. `tools/wine/run-sim.sh` runs it under Wine. On macOS the same pair (`libmixercoresg.dylib`, `lv1sim.app`) loads the bundle with CFBundle and adds CoreMIDI and window checks; `tools/mac/run-sim.sh` runs it on a Mac. |
+| `installer/` | Inno Setup script (`tools/make-installer.sh`) and `lv1-prefs.ps1`, which adds or removes the `<SurfaceDriver>` entry. `installer/mac/`: `install.sh`, `lv1-prefs.sh`, the bundle's `Info.plist` and the zip's README. |
 
 **Build and test**
 - `tools/cargo.sh test --workspace`: every crate's tests on Linux.
@@ -345,6 +479,11 @@ the Mac version only adds a shell.
   no text without Segoe UI: check text on Windows.
 - `tools/make-installer.sh [--sign]`: `dist/TuneSync-<version>-setup.exe`.
 - `tools/capi-header.sh [--check]`: regenerate (or check) `crates/capi/include/tunesync.h`.
+- `tools/build-mac.sh`: `dist/mac/TuneSync_Control.bundle` (universal, ad-hoc signed),
+  `dist/mac/TuneSync-<version>-macos.zip`, `rtpsend` and the Mac `lv1sim`, on Linux in
+  `tunesync-mac:1` (see [macOS](#macos)) or natively on a Mac.
+- `tools/mac/test-installer.sh`: the Mac install scripts, on any host.
+- `MAC=user@host tools/mac/run-sim.sh` and `tools/mac/rig-test.sh`: on a Mac, over SSH.
 
 `tools/cargo.sh` runs cargo in the `tunesync-build:1` image
 (`tools/docker/Dockerfile`: Rust with the `x86_64-pc-windows-msvc` target, on a base with
