@@ -73,7 +73,12 @@ value and text.
 | CC *n* (the scale CC), value 0..10 | Scale = that Tune scale number. Values above 10 are ignored and logged. |
 | Anything else | Ignored, including Note Off and messages on other channels. |
 
-A note without a CC changes only the key.
+A note without a CC changes only the key. The Note Off that ends a cue's note is part of the
+cue: it is neither a change nor logged as ignored.
+
+A momentary controller button that sends CC 20 = 127 on press and 0 on release selects
+**User Scale** (0) on release (seen with a WING user button on the rig): set the button to
+send the scale's own number.
 
 **Coalescing (builder's call).** Messages that arrive within 30 ms of each other become one
 change. A clip that sends CC 20 and a note together gives one log line and one pass over the
@@ -169,6 +174,26 @@ The window is about 480 px wide. From top to bottom:
 **Settings storage (builder's call).** `%ProgramData%\TuneSync\settings.ini`. LV1's own
 preset blob (WMSD_GetPreset) only holds a version marker, because LV1 writes its preferences
 file only when it closes cleanly.
+
+## Proven on the rig (2026-11-23)
+
+LV1 17.3.108.193 on the show PC (Windows 11 26200, 3840x2160 at 175 %), TuneSync 0.1.0
+installed with its setup (surface added to LV1's preferences), session with Tune RT on
+Ch 1-3 (slot 2):
+
+| Check | Result |
+|---|---|
+| Load | Create verified MixerCoreSG's callback table; RTP-MIDI open on 5004/5005; MIDI in open; DNS-SD advertised ("TuneSync") through Windows' own dnsapi |
+| RTP-MIDI cue (rtpsend on the host, loopback) | CC 20 = 4 + Note D: all three Tunes to D Harmonic Minor, 27 ms after the note, read back from LV1; then A Major |
+| Lock | Ch 2 on Lock: "E Natural Minor: set 2 (Ch 1, Ch 3), skipped 1 locked (Ch 2)" |
+| Local MIDI port | a WING user button over USB ("WING MIDI Control"): CC 20 values and a Note On (G#/Ab, sharps for a natural key) applied; CC 20 = 127 refused |
+| LV1's UI thread | WM_NULL round trips every 10 ms for 15 s over two cues: median 1.7 ms, p99 14.9 ms, max 26 ms |
+| Settings window | opens from Setup -> Control Surfaces (LV1 lists it under Controls), Direct2D text crisp at 175 %, live Tunes list with Rcv/Lock |
+| Surface re-created | loading another session destroyed and re-created the surface: stop + start in 32 ms, UDP 5004 re-bound |
+
+Not yet checked: a Mac joining over the network (the rig network is not routable from the
+build server; a Mac on the desk network is the next step), DNS-SD browsing, the stereo Tune
+(`LVLS`).
 
 ## Structure
 

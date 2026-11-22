@@ -76,6 +76,12 @@ pub fn interpret(msg: &[u8], channel: u8, scale_cc: u8) -> Interpreted {
     }
     let text = describe(msg);
     let (kind, ch) = (msg[0] & 0xF0, (msg[0] & 0x0F) + 1);
+    // The Note Off that ends a cue's note (or Note On velocity 0) on our channel is part of
+    // the cue: not a change, and not worth an "ignored" line either (rig, 2026-11-23).
+    let on_ours = channel == 0 || ch == channel;
+    if on_ours && msg.len() >= 3 && (kind == 0x80 || (kind == 0x90 && msg[2] == 0)) {
+        return Interpreted::ignored(String::new());
+    }
     if msg.len() < 3 || msg[1] > 0x7F || msg[2] > 0x7F || (kind != 0x90 && kind != 0xB0) || (channel != 0 && ch != channel) {
         return Interpreted::ignored(text);
     }
@@ -183,6 +189,8 @@ mod tests {
         assert_eq!(i(&note(16, 61, 1)).value, 1, "C# any octave");
         assert_eq!(i(&note(16, 57, 0)).kind, MsgKind::Ignored, "vel 0 = note off");
         assert_eq!(i(&[0x8F, 57, 64]).kind, MsgKind::Ignored, "note off");
+        assert!(i(&note(16, 57, 0)).text.is_empty() && i(&[0x8F, 57, 64]).text.is_empty(), "a cue's own Note Off is not logged");
+        assert!(!i(&[0x80, 57, 64]).text.is_empty(), "a Note Off on another channel is (a keyboard)");
         let other = i(&note(15, 57, 100));
         assert_eq!(other.kind, MsgKind::Ignored);
         assert!(other.text.contains("ch 15"));
