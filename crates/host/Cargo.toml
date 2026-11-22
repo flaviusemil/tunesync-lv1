@@ -4,6 +4,8 @@ description = "TuneSync running: worker threads, settings and log files, MIDI by
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 tunesync = { path = "../tunesync" }

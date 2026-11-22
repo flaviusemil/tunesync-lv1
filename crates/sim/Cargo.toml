@@ -4,6 +4,8 @@ description = "A fake eMotion LV1 for testing TuneSync_Control.dll without LV1: 
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 # The fake MixerCoreSG.dll. GetModuleHandle is case-insensitive, so mixercoresg.dll is
 # found under LV1's name; tools/build-dll.sh copies it as MixerCoreSG.dll.

@@ -4,6 +4,8 @@ description = "TuneSync's settings window as a portable view model: layout, hit 
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 tunesync = { path = "../tunesync" }

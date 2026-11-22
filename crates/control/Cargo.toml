@@ -4,6 +4,8 @@ description = "TuneSync_Control.dll: the eMotion LV1 surface driver, a shim over
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "tunesync_control"

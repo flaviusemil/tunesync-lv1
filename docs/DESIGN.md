@@ -207,5 +207,4 @@ installer write the `<SurfaceDriver>` preferences entry while LV1 is closed. The
 the same way as Headlink's, or Smart App Control blocks it.
 
 ## Open (Flavius)
-- The licence (asked 2026-11-22: MIT, or MIT OR Apache-2.0).
 - One-page or KISS settings window (`docs/settings-kiss.html`).

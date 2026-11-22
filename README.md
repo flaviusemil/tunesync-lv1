@@ -29,3 +29,13 @@ TuneSync is separate from Headlink. It has its own DLL, settings and installer.
   ```
 
 - A stand-in playback rig for tests: `tools/cargo.sh run -p rtpmidi --example rtpsend -- <host> 5004 key A cc 20 3`.
+
+## Licence
+
+TuneSync is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option. Unless you explicitly state otherwise, any
+contribution you submit for inclusion in TuneSync, as defined in the Apache-2.0 license,
+shall be dual licensed as above, without any additional terms or conditions.
+
+TuneSync talks to eMotion LV1 through LV1's control-surface driver interface, which was
+reverse-engineered for interoperability. It is not affiliated with or endorsed by Waves.
