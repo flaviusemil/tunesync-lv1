@@ -1,9 +1,10 @@
-# tune-remote-rust:1 - Tune Remote's build image: Rust (Linux host target for the tests,
-# x86_64-pc-windows-msvc for the LV1 DLL) on top of Headlink's headlink-xbuild:1, which
-# brings clang-cl / lld-link / llvm-lib and Microsoft's CRT + Windows SDK (xwin, licence
-# accepted by Flavius for headlink-xbuild on 2026-10-20).
-#   docker build -t tune-remote-rust:1 tools/docker
-FROM headlink-xbuild:1
+# tunesync-build:1 - TuneSync's build image: Rust (the Linux target for the tests,
+# x86_64-pc-windows-msvc for the LV1 DLL) on top of a base with clang-cl / lld-link /
+# llvm-lib and Microsoft's CRT + Windows SDK at /xwin (tools/docker/xwin.Dockerfile, or
+# Headlink's headlink-xbuild:1).
+#   docker build -t tunesync-build:1 --build-arg BASE=tunesync-xwin:1 tools/docker
+ARG BASE=tunesync-xwin:1
+FROM ${BASE}
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/* \

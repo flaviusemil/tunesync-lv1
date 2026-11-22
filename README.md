@@ -14,7 +14,8 @@ TuneSync is separate from Headlink. It has its own DLL, settings and installer.
 - Build and test (Docker, nothing else to install):
 
   ```
-  docker build -t tune-remote-rust:1 tools/docker     # once; needs Headlink's headlink-xbuild:1
+  docker build -t tunesync-xwin:1 -f tools/docker/xwin.Dockerfile tools/docker   # once: accepts Microsoft's SDK licence, read it first
+  docker build -t tunesync-build:1 tools/docker
   tools/cargo.sh test --workspace
   ```
 

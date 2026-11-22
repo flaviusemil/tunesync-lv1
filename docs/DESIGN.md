@@ -184,9 +184,9 @@ the Mac version only adds a shell.
 | `crates/control` | (next) `TuneSync_Control.dll`: the shim. A `Mixer` on LV1's Get/SetMixerControl, local MIDI by name, DNS-SD, the settings window and the worker threads, started from the surface's Create. |
 | `crates/sim` | (next) A fake LV1 (`MixerCoreSG.dll` with the seven callbacks, plus a host that loads the DLL like LV1 does), to run the DLL under Wine before the rig. |
 
-Build and test: `tools/cargo.sh test --workspace` runs cargo in the `tune-remote-rust:1` image
-(`tools/docker/Dockerfile`: Headlink's `headlink-xbuild:1` with clang-cl, lld-link and the
-xwin CRT/SDK, plus Rust with the `x86_64-pc-windows-msvc` target).
+Build and test: `tools/cargo.sh test --workspace` runs cargo in the `tunesync-build:1` image
+(`tools/docker/Dockerfile`: Rust with the `x86_64-pc-windows-msvc` target, on a base with
+clang-cl, lld-link and Microsoft's CRT/SDK fetched by xwin, `tools/docker/xwin.Dockerfile`).
 
 **Install.** Copy `TuneSync_Control.dll` into `C:\Program Files (x86)\Waves\eMotion LV1\Modules`
 (this needs elevation). Then either add the surface in Setup → Control Surfaces, or have the
