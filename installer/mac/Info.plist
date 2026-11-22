@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>TuneSync_Control</string>
+    <key>CFBundleIdentifier</key><string>ro.oriontechnologies.tunesync.control</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>TuneSync</string>
+    <key>CFBundleGetInfoString</key><string>TuneSync @VERSION@ - MIDI sets the key of every Waves Tune Real-Time in eMotion LV1</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+    <key>CFBundleVersion</key><string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key><string>@MINOS@</string>
+    <key>NSHumanReadableCopyright</key><string>TuneSync is open source (MIT OR Apache-2.0). Not affiliated with or endorsed by Waves.</string>
+</dict>
+</plist>
