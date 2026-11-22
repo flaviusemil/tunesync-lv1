@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" role="img" aria-label="TuneSync">
+  <title>TuneSync</title>
+  <!-- 28 px redraw (175 % title bars): the 32 px fork, 4 px tines and stem on whole pixels, shorter tines -->
+  <rect width="28" height="28" rx="6.1" fill="#1f2228"/>
+  <path fill="#3fb37f" d="M6 2h4V8a4 4 0 0 0 8 0V2h4V8A8 8 0 0 1 16 15.75V22H12V15.75A8 8 0 0 1 6 8Z"/>
+  <ellipse cx="11.34" cy="22.3" rx="4.8" ry="3.45" transform="rotate(-20 11.34 22.3)" fill="#e8eaed"/>
+</svg>

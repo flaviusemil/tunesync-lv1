@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{BOOL, COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{BOOL, COLORREF, HANDLE, HMODULE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct2D::Common::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_U};
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
@@ -132,6 +132,23 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
+/// The window's icons at the sizes its DPI draws them (title bar 16 px at 100 %, 28 px at
+/// 175 %; Alt+Tab 32 / 56), each loaded from the .ico's own image of that size. The class
+/// icons are the 96-DPI ones, which Windows would stretch on a scaled screen.
+unsafe fn set_icons(hwnd: HWND, inst: HMODULE, dpi: f32, icons: &mut [HICON; 2]) {
+    for (i, base) in [16.0f32, 32.0].into_iter().enumerate() {
+        let px = (base * dpi / 96.0).round() as i32;
+        let Ok(h) = LoadImageW(inst, PCWSTR(1 as *const u16), IMAGE_ICON, px, px, LR_DEFAULTCOLOR) else { continue };
+        let h = HICON(h.0);
+        // WM_SETICON: wParam 0 = ICON_SMALL, 1 = ICON_BIG.
+        SendMessageW(hwnd, WM_SETICON, WPARAM(i), LPARAM(h.0 as isize));
+        if !icons[i].0.is_null() {
+            let _ = DestroyIcon(icons[i]);
+        }
+        icons[i] = h;
+    }
+}
+
 // ---------------------------------------------------------------- the window thread
 
 struct Gfx {
@@ -151,6 +168,8 @@ struct State {
     formats: HashMap<(bool, u32, u16), IDWriteTextFormat>,
     gfx: Option<Gfx>,
     dpi: f32,
+    inst: HMODULE,
+    icons: [HICON; 2],
     edit: HWND,
     edit_font: HFONT,
     edit_font_dpi: f32,
@@ -437,6 +456,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         0x02E0 /* WM_DPICHANGED */ => {
             st.dpi = (wp.0 & 0xffff) as f32;
             st.gfx = None;
+            let (inst, dpi) = (st.inst, st.dpi);
+            set_icons(hwnd, inst, dpi, &mut st.icons);
             let r = &*(lp.0 as *const RECT);
             let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(hwnd, None, false);
@@ -580,7 +601,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
         let Ok(d2d) = D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) else { return };
         let Ok(dw) = DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) else { return };
         // TuneSync's own module (not LV1's exe): the class and the icon resource live there.
-        let mut inst = windows::Win32::Foundation::HMODULE::default();
+        let mut inst = HMODULE::default();
         let _ = windows::Win32::System::LibraryLoader::GetModuleHandleExW(
             windows::Win32::System::LibraryLoader::GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | windows::Win32::System::LibraryLoader::GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             PCWSTR(wndproc as *const () as *const u16),
@@ -662,6 +683,8 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             formats: HashMap::new(),
             gfx: None,
             dpi,
+            inst,
+            icons: [HICON::default(); 2],
             edit,
             edit_font: HFONT::default(),
             edit_font_dpi: 0.0,
@@ -672,6 +695,8 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             rt,
             problem,
         });
+        let mut st = st;
+        set_icons(hwnd, inst, dpi, &mut st.icons);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(st) as isize);
         SetTimer(hwnd, TIMER_REFRESH, 250, None);
         hwnd_out.store(hwnd.0 as isize, Ordering::SeqCst);
@@ -689,11 +714,15 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
         }
         hwnd_out.store(0, Ordering::SeqCst);
         let p = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
+        let mut icons = [HICON::default(); 2];
         if !p.is_null() {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); // the window procedure stops touching State
-            drop(Box::from_raw(p));
+            icons = Box::from_raw(p).icons;
         }
         let _ = DestroyWindow(hwnd);
+        for i in icons.into_iter().filter(|i| !i.0.is_null()) {
+            let _ = DestroyIcon(i);
+        }
         let _ = UnregisterClassW(class, inst);
     }
 }
