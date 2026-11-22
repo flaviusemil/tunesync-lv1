@@ -43,7 +43,7 @@ impl SurfaceDriver for TuneSync {
         let l2 = lv1.clone();
         let health = move || l2.fault().map(|c| format!("LV1 refused a control call (exception 0x{c:08X}): TuneSync stays passive until LV1 restarts"));
         let rt = Runtime::start(
-            RuntimeConfig { dir: data_dir(), title: format!("TuneSync {VERSION}"), health: Some(Box::new(health)) },
+            RuntimeConfig { health: Some(Box::new(health)), ..RuntimeConfig::new(data_dir(), format!("TuneSync {VERSION}")) },
             Box::new(mixer::Lv1Mixer { lv1: lv1.clone() }),
         );
         Some(TuneSync {

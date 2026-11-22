@@ -84,7 +84,7 @@ fn rtp_note_sets_every_unlocked_tune() {
     let dir = std::env::temp_dir().join(format!("tunesync-rt-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let lv1 = Lv1::new();
-    let rt = Runtime::start(RuntimeConfig { dir: dir.clone(), title: "TuneSync test".into(), health: None }, Box::new(lv1.clone()));
+    let rt = Runtime::start(RuntimeConfig::new(&dir, "TuneSync test"), Box::new(lv1.clone()));
     assert!(wait_for(2000, || rt.tunes().len() == 2), "first scan finds both Tunes");
     let t = rt.tunes();
     assert_eq!((t[0].label.as_str(), t[0].name.as_str(), t[0].receive), ("Ch 43", "Vox 1", true));

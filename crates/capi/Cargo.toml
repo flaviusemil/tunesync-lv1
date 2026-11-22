@@ -1,0 +1,17 @@
+[package]
+name = "tunesync-capi"
+description = "TuneSync as a C library: the tunesync-host runtime behind include/tunesync.h, for a C or C++ host such as Headlink"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "tunesync_capi"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tunesync = { path = "../tunesync" }
+tunesync-host = { path = "../host" }
+rtpmidi = { path = "../rtpmidi" }
