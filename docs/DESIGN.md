@@ -1,13 +1,13 @@
-# Tune Remote: design
+# TuneSync: design
 
-*Tune Remote is a working name.* It is an eMotion LV1 control module that sets the key and
-scale of every Waves Tune Real-Time instance from MIDI. It is its own product with its own
-DLL, settings and installer. It is not part of Headlink and does not need Headlink installed.
+TuneSync is an eMotion LV1 control module that sets the key and scale of every Waves Tune
+Real-Time instance from MIDI. It is its own product with its own DLL, settings and installer.
+It is not part of Headlink and does not need Headlink installed. It is open source.
 
 ## Why
 
 In a show, the backing tracks know which song is playing, but Tune doesn't. Today the only
-way to change Tune's key in LV1 is a snapshot or a hand on the plug-in. With Tune Remote, the
+way to change Tune's key in LV1 is a snapshot or a hand on the plug-in. With TuneSync, the
 tracks session sends one MIDI message at the top of each song and every Tune follows. The key
 lives with the song in the tracks session, so reordering the set can't put Tune out of sync.
 
@@ -22,7 +22,8 @@ lives with the song in the tracks session, so reordering the set can't put Tune 
 - Following MIDI timecode, song lists or program-change presets on the LV1 side. The tracks
   session holds the key.
 - Any other plug-in or parameter.
-- macOS. Windows comes first; LV1's surface-driver ABI is the same on Mac, so it can follow.
+- macOS in the first release. Windows comes first; LV1's surface-driver ABI is the same on Mac,
+  and a Mac version follows (Flavius, 2026-11-22: "This should work with mac too").
 
 **Anti-goals** (failures even if everything else works)
 - Touching anything except a Tune's key and scale.
@@ -138,11 +139,11 @@ The window is about 480 px wide. From top to bottom:
    timestamped) plus Copy and Clear.
    - Ignored messages, such as a keyboard on another channel, get at most one summary line
      every 5 s.
-   - The same lines go to `%ProgramData%\Tune Remote\tune-remote.log` (1 MB, one rotation).
+   - The same lines go to `%ProgramData%\TuneSync\tunesync.log` (1 MB, one rotation).
 
 ### RTP-MIDI
 
-- **The sheet:** an on/off switch (off by default), the session name (default "Tune Remote"),
+- **The sheet:** an on/off switch (off by default), the session name (default "TuneSync"),
   the UDP port (5004), **Connected** peers and **Found on the network**.
 - **Several peers at once.** Several peers can join the same session, as AppleMIDI allows:
   one port pair, with each participant told apart by its SSRC. For example, a main and a
@@ -153,10 +154,10 @@ The window is about 480 px wide. From top to bottom:
 - **Auto-discovery, with no Bonjour install.** Windows 10 and 11 have DNS-SD built in
   (`DnsServiceRegister` / `DnsServiceBrowse` in dnsapi). It works both ways:
   - **Advertise:** while RTP is on, register `_apple-midi._udp` under the session name and
-    port. "Tune Remote" then appears in the Mac's Audio MIDI Setup → MIDI Network Setup →
+    port. "TuneSync" then appears in the Mac's Audio MIDI Setup → MIDI Network Setup →
     Directory by itself, and the Mac connects with one click.
   - **Browse:** list the Macs' own network sessions under "Found on the network", each with
-    a Connect button. Tune Remote then invites the Mac as the initiator, so the Mac only needs
+    a Connect button. TuneSync then invites the Mac as the initiator, so the Mac only needs
     its session enabled. Connections made this way are remembered and re-invited when the Mac
     comes back.
   - Typing the host IP and port on the Mac still works as a fallback.
@@ -165,23 +166,33 @@ The window is about 480 px wide. From top to bottom:
     our own. Not tested yet on the LV1 hosts.
   - rtpMIDI (Tobias Erichsen) is why people expect to install Bonjour. We don't use it.
 
-**Settings storage (builder's call).** `%ProgramData%\Tune Remote\settings.ini`. LV1's own
+**Settings storage (builder's call).** `%ProgramData%\TuneSync\settings.ini`. LV1's own
 preset blob (WMSD_GetPreset) only holds a version marker, because LV1 writes its preferences
 file only when it closes cleanly.
 
 ## Structure
 
-| Path | Contents |
-|---|---|
-| `core/` | Portable C++17 with no Windows or LV1 headers: Tune tables and spelling, the MIDI-to-intent mapper, discovery and apply against an abstract `Mixer`, settings (ini), the log ring. Unit-tested on Linux (`make test`) with a fake mixer. |
-| `win/` | (next) The WMSD exports (ABI from Headlink's `tools/surfaceprobe/wmsd_abi.h`), the `Mixer` implemented on LV1's Get/SetMixerControl callbacks, local MIDI, the settings window and the worker threads. |
-| `net/` | (next) RTP-MIDI. Built from Headlink's `tools/preprobe/rtpmidi.*` and `midiport.*` (WinMM by name), on the `demo/pre-probe` branch. They are copied, not linked, so the two products stay independent. The codec (`am_*` / `rtp_*`) is reused as is. preprobe's `Session` talks to a single peer, so it is replaced by a responder that keeps a table of participants keyed by SSRC: invitation on the control port then the data port, CK replies, RS feedback, BY and a silence timeout, all per peer. |
+Rust (Flavius, 2026-11-22), one Cargo workspace. The product logic is a library and the DLL
+LV1 loads is a thin shim over it, so Headlink can reuse the library (through a C API) and
+the Mac version only adds a shell.
 
-**Install.** Copy `TuneRemote_Control.dll` into `C:\Program Files (x86)\Waves\eMotion LV1\Modules`
+| Crate | Contents |
+|---|---|
+| `crates/tunesync` | The library, with no OS or LV1 in it: Tune tables and spelling, the MIDI-to-intent mapper and coalescer, discovery and apply against a `Mixer` trait, the engine, settings (ini), the log ring. Tested on Linux with a fake mixer. |
+| `crates/rtpmidi` | RTP-MIDI. The codec is a port of Headlink's `tools/preprobe/rtpmidi.*` (`demo/pre-probe`), same test vectors. preprobe's session talks to a single peer, so it is replaced by one that keeps a table of participants keyed by SSRC: invitation on the control port then the data port, CK answered or run, RS feedback, BY and a silence timeout, all per peer, in both roles (they invite us, or we invite a Mac). Tested with raw-byte fake peers on loopback. `examples/rtpsend` is a stand-in playback rig. |
+| `crates/lv1-surface` | (next) LV1's surface-driver interface (WMSD, interface 6) in Rust: the packed structs from Headlink's `tools/surfaceprobe/wmsd_abi.h`, a macro that generates the 18 exports, the callback-table check, and calls into LV1 behind a crash guard (a small C shim, because Rust has no `__try`). |
+| `crates/control` | (next) `TuneSync_Control.dll`: the shim. A `Mixer` on LV1's Get/SetMixerControl, local MIDI by name, DNS-SD, the settings window and the worker threads, started from the surface's Create. |
+| `crates/sim` | (next) A fake LV1 (`MixerCoreSG.dll` with the seven callbacks, plus a host that loads the DLL like LV1 does), to run the DLL under Wine before the rig. |
+
+Build and test: `tools/cargo.sh test --workspace` runs cargo in the `tune-remote-rust:1` image
+(`tools/docker/Dockerfile`: Headlink's `headlink-xbuild:1` with clang-cl, lld-link and the
+xwin CRT/SDK, plus Rust with the `x86_64-pc-windows-msvc` target).
+
+**Install.** Copy `TuneSync_Control.dll` into `C:\Program Files (x86)\Waves\eMotion LV1\Modules`
 (this needs elevation). Then either add the surface in Setup → Control Surfaces, or have the
 installer write the `<SurfaceDriver>` preferences entry while LV1 is closed. The DLL is signed
 the same way as Headlink's, or Smart App Control blocks it.
 
 ## Open (Flavius)
-- Product name, and whether it is free or paid.
-- Mac version: when.
+- The licence (asked 2026-11-22: MIT, or MIT OR Apache-2.0).
+- One-page or KISS settings window (`docs/settings-kiss.html`).

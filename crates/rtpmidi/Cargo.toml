@@ -1,0 +1,8 @@
+[package]
+name = "rtpmidi"
+description = "RTP-MIDI (AppleMIDI): the codec and a network session several peers join at once"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

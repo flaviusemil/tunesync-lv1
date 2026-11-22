@@ -1,0 +1,8 @@
+[package]
+name = "tunesync"
+description = "TuneSync: MIDI from the tracks rig -> the key and scale of every unlocked Waves Tune RT"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

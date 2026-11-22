@@ -1,8 +1,8 @@
 //! What the settings window edits, stored as a small ini file
-//! (`%ProgramData%\Tune Remote\settings.ini` on Windows).
+//! (`%ProgramData%\TuneSync\settings.ini` on Windows).
 use crate::tune::Spelling;
 
-/// A session Tune Remote invited itself (Connect): invited again when it comes back.
+/// A session TuneSync invited itself (Connect): invited again when it comes back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Peer {
     pub ip: String,
@@ -42,7 +42,7 @@ impl Default for Settings {
         Settings {
             midi_port: String::new(),
             rtp_enabled: false,
-            rtp_name: "Tune Remote".into(),
+            rtp_name: "TuneSync".into(),
             rtp_port: 5004,
             channel: 16,
             scale_cc: 20,
@@ -56,7 +56,7 @@ impl Default for Settings {
 pub fn is_ipv4(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     parts.len() == 4
-        && parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().map_or(false, |n| n <= 255))
+        && parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok_and(|n| n <= 255))
 }
 
 fn int_in(v: &str, lo: i64, hi: i64) -> Option<i64> {
@@ -175,7 +175,7 @@ mod tests {
         let t = from_ini(&to_ini(&s), &mut w);
         assert!(w.is_empty(), "{w:?}");
         assert_eq!(t, s);
-        assert_eq!((t.rtp_port, t.rtp_name.as_str()), (5004, "Tune Remote"));
+        assert_eq!((t.rtp_port, t.rtp_name.as_str()), (5004, "TuneSync"));
     }
 
     #[test]

@@ -4,12 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use tr_core::apply::*;
-use tr_core::engine::Engine;
-use tr_core::log::{Level, LogRing};
-use tr_core::midi_map::Intent;
-use tr_core::settings::Settings;
-use tr_core::tune::*;
+use tunesync::apply::*;
+use tunesync::engine::Engine;
+use tunesync::log::{Level, LogRing};
+use tunesync::midi_map::Intent;
+use tunesync::settings::Settings;
+use tunesync::tune::*;
 
 #[derive(Default, Clone)]
 struct FakeSlot {
