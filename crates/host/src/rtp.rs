@@ -76,7 +76,7 @@ impl RtpService {
             want: Mutex::new(Want { name: "TuneSync".into(), port: 5004, ..Default::default() }),
             cv: Condvar::new(),
             session,
-            dnssd: Mutex::new(Dnssd::default()),
+            dnssd: Mutex::new(Dnssd::new()),
             last_midi: last,
             log,
         });

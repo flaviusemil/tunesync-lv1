@@ -11,14 +11,16 @@ cp "$ROOT"/dist/{lv1sim.exe,MixerCoreSG.dll,TuneSync_Control.dll} "$RUN/"
 # (Relative paths: clang-cl reads "/w..." as its own /w flag.)
 docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/tools/wine":/src/wine -v "$RUN":/src/out -w /src tunesync-build:1 bash -c \
   'clang-cl --target=x86_64-pc-windows-msvc /nologo /LD /O2 /imsvc /xwin/crt/include /imsvc /xwin/sdk/include/ucrt /imsvc /xwin/sdk/include/um /imsvc /xwin/sdk/include/shared wine/bcryptprimitives.c /Foout/b.obj /Feout/bcryptprimitives.dll -fuse-ld=lld-link /link /libpath:/xwin/crt/lib/x86_64 /libpath:/xwin/sdk/lib/um/x86_64 /libpath:/xwin/sdk/lib/ucrt/x86_64 bcrypt.lib >/dev/null && rm -f out/b.obj out/bcryptprimitives.lib out/bcryptprimitives.exp'
-ARGS=(); SHOT=""
-while [ $# -gt 0 ]; do case "$1" in --shot) SHOT=$2; shift;; *) ARGS+=("$1");; esac; shift; done
-docker run --rm -e SHOT="${SHOT:+/o/shot.png}" -v "$RUN":/o -w /o --entrypoint bash headlink-inno:1 -c '
-  Xvfb :9 -screen 0 1280x900x24 >/dev/null 2>&1 & export DISPLAY=:9; sleep 1
-  if [ -n "$SHOT" ]; then
-    ( sleep 6; command -v import >/dev/null && import -window root "$SHOT" || xwd -root -silent > /o/shot.xwd ) &
-  fi
+# --shot <dir>: lv1sim captures the window (page, RTP-MIDI sheet) as BMPs; they land in <dir>.
+ARGS=(); SHOTDIR=""
+while [ $# -gt 0 ]; do case "$1" in --shot) SHOTDIR=$2; ARGS+=(--shot shot); shift;; *) ARGS+=("$1");; esac; shift; done
+set +e
+# FONTS=1: install a few Linux fonts in the throwaway container (Wine has no Segoe UI).
+docker run --rm -e FONTS="${FONTS:-}" -v "$RUN":/o -w /o --entrypoint bash headlink-inno:1 -c '
+  [ -n "$FONTS" ] && { apt-get update -qq >/dev/null && apt-get install -y -qq fonts-dejavu-core fonts-liberation >/dev/null 2>&1; }
+  Xvfb :9 -screen 0 1280x1000x24 >/dev/null 2>&1 & export DISPLAY=:9; sleep 1
   wine lv1sim.exe "$@" 2>/dev/null; rc=$?; chmod -R a+rw /o; exit $rc' bash "${ARGS[@]}"
 rc=$?
-[ -n "$SHOT" ] && { [ -f "$RUN/shot.png" ] && cp "$RUN/shot.png" "$SHOT"; [ -f "$RUN/shot.xwd" ] && cp "$RUN/shot.xwd" "${SHOT%.png}.xwd"; }
+set -e
+if [ -n "$SHOTDIR" ]; then mkdir -p "$SHOTDIR"; cp "$RUN"/shot-*.bmp "$SHOTDIR"/ 2>/dev/null || true; fi
 exit $rc

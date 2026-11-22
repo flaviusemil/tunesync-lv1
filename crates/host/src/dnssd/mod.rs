@@ -39,6 +39,9 @@ mod none {
     pub struct Dnssd;
 
     impl Dnssd {
+        pub fn new() -> Self {
+            Dnssd
+        }
         pub fn start(&mut self, _name: &str, _port: u16, _log: LogFn) {}
         pub fn stop(&mut self) {}
         pub fn found(&self) -> Vec<FoundSession> {

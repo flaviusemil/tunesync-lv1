@@ -13,6 +13,7 @@ use tunesync_host::sys::data_dir;
 use tunesync_host::{Runtime, RuntimeConfig};
 
 pub mod mixer;
+pub mod model;
 #[cfg(windows)]
 pub mod window;
 
@@ -47,7 +48,10 @@ impl SurfaceDriver for TuneSync {
         );
         Some(TuneSync {
             #[cfg(windows)]
-            window: window::Window::new(rt.clone()),
+            window: window::Window::new(rt.clone(), {
+                let l3 = lv1.clone();
+                Arc::new(move || l3.fault().map(|c| format!("LV1 refused a control call (0x{c:08X}); TuneSync is passive until LV1 restarts")))
+            }),
             rt,
             lv1,
         })

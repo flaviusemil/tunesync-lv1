@@ -46,19 +46,20 @@ fn api() -> Option<&'static Api> {
         if dll.is_null() {
             return None;
         }
+        type Proc = unsafe extern "system" fn() -> isize;
         macro_rules! load {
-            ($n:literal) => {
-                std::mem::transmute(GetProcAddress(dll, concat!($n, "\0").as_ptr())?)
+            ($t:ty, $n:literal) => {
+                std::mem::transmute::<Proc, $t>(GetProcAddress(dll, concat!($n, "\0").as_ptr())?)
             };
         }
         Some(Api {
-            construct: load!("DnsServiceConstructInstance"),
-            free_instance: load!("DnsServiceFreeInstance"),
-            register: load!("DnsServiceRegister"),
-            deregister: load!("DnsServiceDeRegister"),
-            browse: load!("DnsServiceBrowse"),
-            browse_cancel: load!("DnsServiceBrowseCancel"),
-            resolve: load!("DnsServiceResolve"),
+            construct: load!(FnConstruct, "DnsServiceConstructInstance"),
+            free_instance: load!(FnFreeInstance, "DnsServiceFreeInstance"),
+            register: load!(FnRegister, "DnsServiceRegister"),
+            deregister: load!(FnRegister, "DnsServiceDeRegister"),
+            browse: load!(FnBrowse, "DnsServiceBrowse"),
+            browse_cancel: load!(FnCancel, "DnsServiceBrowseCancel"),
+            resolve: load!(FnResolve, "DnsServiceResolve"),
         })
     })
     .as_ref()
@@ -262,6 +263,10 @@ pub struct Dnssd {
 }
 
 impl Dnssd {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Advertise `name` on `port` and browse for others. Returns at once.
     pub fn start(&mut self, name: &str, port: u16, log: LogFn) {
         self.stop();

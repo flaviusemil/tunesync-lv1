@@ -10,8 +10,10 @@ use tunesync::tune::*;
 use tunesync_host::{Runtime, RuntimeConfig};
 
 /// Tune RT on Ch 43 (A Natural Minor, Rcv) and Ch 45 (Eb Major, Lock).
+type Params = BTreeMap<(u32, u32, i32), f64>;
+
 #[derive(Clone, Default)]
-struct Lv1(Arc<Mutex<BTreeMap<(u32, u32, i32), f64>>>);
+struct Lv1(Arc<Mutex<Params>>);
 
 impl Lv1 {
     fn new() -> Self {

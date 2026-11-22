@@ -206,7 +206,7 @@ fn run(sh: Arc<Shared>) {
         if changed || Instant::now() >= next_scan {
             next_scan = Instant::now() + Duration::from_secs(2);
             let names = backend::list();
-            let there = names.iter().any(|n| *n == want);
+            let there = names.contains(&want);
             sh.state.lock().unwrap_or_else(|e| e.into_inner()).ports = names;
             if port.is_some() && !there {
                 port = None;
@@ -248,7 +248,7 @@ fn run(sh: Arc<Shared>) {
             }
         }
     }
-    drop(port);
+    port.take(); // closes it (Windows)
     sh.state.lock().unwrap_or_else(|e| e.into_inner()).open.clear();
 }
 

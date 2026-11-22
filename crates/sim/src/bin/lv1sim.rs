@@ -24,11 +24,95 @@ fn main() {
     std::process::exit(win::run());
 }
 
+/// Finds, clicks and captures the settings window (GDI: works under Wine and on the rig).
+#[cfg(windows)]
+mod shot {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Graphics::Gdi::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+
+    pub fn find() -> isize {
+        let class: Vec<u16> = "TuneSyncWindow\0".encode_utf16().collect();
+        unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) as isize }
+    }
+
+    fn scale(h: HWND) -> f32 {
+        unsafe {
+            let dc = GetDC(h);
+            let d = GetDeviceCaps(dc, LOGPIXELSX as i32);
+            ReleaseDC(h, dc);
+            if d > 0 { d as f32 / 96.0 } else { 1.0 }
+        }
+    }
+
+    pub fn click(hwnd: isize, x_dip: f32, y_dip: f32) {
+        let h = hwnd as HWND;
+        let s = scale(h);
+        let lp = (((y_dip * s) as isize) << 16) | ((x_dip * s) as isize & 0xffff);
+        unsafe {
+            PostMessageW(h, WM_LBUTTONDOWN, 1, lp);
+            PostMessageW(h, WM_LBUTTONUP, 0, lp);
+        }
+    }
+
+    pub fn key_escape(hwnd: isize) {
+        unsafe {
+            PostMessageW(hwnd as HWND, WM_KEYDOWN, 0x1B, 0);
+        }
+    }
+
+    /// The window's client area from the screen, as a 24-bit BMP.
+    pub fn capture(hwnd: isize, path: &str) -> bool {
+        let h = hwnd as HWND;
+        unsafe {
+            let mut r: RECT = std::mem::zeroed();
+            GetClientRect(h, &mut r);
+            let (w, ht) = (r.right - r.left, r.bottom - r.top);
+            if w <= 0 || ht <= 0 {
+                return false;
+            }
+            let src = GetDC(h);
+            let mem = CreateCompatibleDC(src);
+            let bmp = CreateCompatibleBitmap(src, w, ht);
+            let old = SelectObject(mem, bmp);
+            BitBlt(mem, 0, 0, w, ht, src, 0, 0, SRCCOPY);
+            let mut bi: BITMAPINFO = std::mem::zeroed();
+            bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bi.bmiHeader.biWidth = w;
+            bi.bmiHeader.biHeight = ht;
+            bi.bmiHeader.biPlanes = 1;
+            bi.bmiHeader.biBitCount = 24;
+            let stride = ((w * 3 + 3) / 4) * 4;
+            let mut px = vec![0u8; (stride * ht) as usize];
+            GetDIBits(mem, bmp, 0, ht as u32, px.as_mut_ptr() as *mut _, &mut bi, DIB_RGB_COLORS);
+            SelectObject(mem, old);
+            DeleteObject(bmp);
+            DeleteDC(mem);
+            ReleaseDC(h, src);
+            let mut f = Vec::new();
+            let size = 54 + px.len() as u32;
+            f.extend_from_slice(b"BM");
+            f.extend_from_slice(&size.to_le_bytes());
+            f.extend_from_slice(&[0, 0, 0, 0]);
+            f.extend_from_slice(&54u32.to_le_bytes());
+            f.extend_from_slice(&40u32.to_le_bytes());
+            f.extend_from_slice(&w.to_le_bytes());
+            f.extend_from_slice(&ht.to_le_bytes());
+            f.extend_from_slice(&1u16.to_le_bytes());
+            f.extend_from_slice(&24u16.to_le_bytes());
+            f.extend_from_slice(&[0u8; 24]);
+            f.extend_from_slice(&px);
+            std::fs::write(path, f).is_ok()
+        }
+    }
+}
+
 #[cfg(windows)]
 mod win {
     use std::ffi::c_void;
     use std::time::{Duration, Instant};
 
+    use super::shot;
     use lv1_surface::abi::{ControllerInfo, CoreCallbacks, HostFn, CALLBACK_EXPORTS};
     use rtpmidi::session::{PeerState, Session, SessionConfig};
 
@@ -75,6 +159,7 @@ mod win {
 
     pub fn run() -> i32 {
         let window_secs: u64 = std::env::args().skip_while(|a| a != "--window").nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let shot_prefix: Option<String> = std::env::args().skip_while(|a| a != "--shot").nth(1);
         let mut c = Checks(0, 0);
         let dir = std::env::temp_dir().join(format!("tunesync-sim-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -139,7 +224,7 @@ mod win {
             let create: Create = sym(drv, "WMSD_CreateControllerForType");
             let mut core_obj = [0u8; 64]; // LV1's core: opaque to the driver, passed back to the callbacks
             let t0 = Instant::now();
-            let ctrl = create(b"LV1\0".as_ptr(), core_obj.as_mut_ptr() as *mut c_void, &cb, std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut());
+            let ctrl = create(c"LV1".as_ptr() as *const u8, core_obj.as_mut_ptr() as *mut c_void, &cb, std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut());
             c.check(!ctrl.is_null(), &format!("Create returned a controller in {} ms", t0.elapsed().as_millis()));
             c.check(t0.elapsed() < Duration::from_millis(200), "Create did not block LV1's thread");
             c.check(wait_for(5000, || count()[0] > 160 * 8), &format!("the first scan ran ({} reads)", count()[0]));
@@ -184,10 +269,25 @@ mod win {
                 let t2 = Instant::now();
                 show(ctrl);
                 c.check(t2.elapsed() < Duration::from_millis(100), "ShowConfigWindow returned at once");
-                wait_for(window_secs * 1000, || {
-                    rig.poll(20);
-                    false
-                });
+                let pump = |ms: u64| {
+                    wait_for(ms, || {
+                        rig.poll(20);
+                        false
+                    })
+                };
+                pump(2500);
+                let hwnd = shot::find();
+                c.check(hwnd != 0, "the settings window exists");
+                if let Some(prefix) = &shot_prefix {
+                    c.check(shot::capture(hwnd, &format!("{prefix}-page.bmp")), "screenshot of the page");
+                    // a tap on the RTP-MIDI tile (DIP 360, 40) opens its sheet
+                    shot::click(hwnd, 360.0, 40.0);
+                    pump(800);
+                    c.check(shot::capture(hwnd, &format!("{prefix}-rtp.bmp")), "screenshot of the RTP-MIDI sheet");
+                    shot::key_escape(hwnd);
+                    pump(300);
+                }
+                pump(window_secs.saturating_sub(4) * 1000);
             }
 
             rig.close();
