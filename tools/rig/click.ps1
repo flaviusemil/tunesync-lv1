@@ -1,8 +1,8 @@
 # click.ps1 - (desktop session) click LV1 at PHYSICAL screen pixels, DPI-aware, after
 # minimising the interactive task's own terminal (it opens on top of LV1), then capture the
 # screen. Every click is followed by a screenshot to check it landed.
-#   click.ps1 -X 3420 -Y 1536 [-Double] [-NoClick] [-Out C:\Users\you\tunesync\screen.png]
-param([int]$X = -1, [int]$Y = -1, [switch]$Double, [switch]$NoClick, [string]$Out = "C:\Users\you\tunesync\screen.png", [int]$Wait = 1200)
+#   click.ps1 -X 3420 -Y 1536 [-Double] [-NoClick] [-Out $env:USERPROFILE\tunesync\screen.png]
+param([int]$X = -1, [int]$Y = -1, [switch]$Double, [switch]$NoClick, [string]$Out = "$env:USERPROFILE\tunesync\screen.png", [int]$Wait = 1200)
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;

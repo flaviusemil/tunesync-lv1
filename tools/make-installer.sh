@@ -2,9 +2,9 @@
 # make-installer.sh [--sign] - TuneSync-<version>-setup.exe from dist/ (tools/build-dll.sh
 # first), compiled with Inno Setup under Wine in Headlink's headlink-inno:1 image.
 #   --sign   Authenticode-signs the DLL, the setup and its uninstaller (osslsigncode +
-#            RFC 3161 timestamp) with the code-signing key in $TUNESYNC_SECRETS
-#            (default ~/secrets: codesign.key / .crt, mounted read-only
-#            for the build only). Without it nothing is signed.
+#            RFC 3161 timestamp) with the PEM key and certificate named by
+#            $TUNESYNC_CODESIGN_KEY and $TUNESYNC_CODESIGN_CERT (mounted read-only for the
+#            build only; never commit them). Without --sign nothing is signed.
 # Writes dist/TuneSync-<version>-setup.exe. Nothing is published.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -12,11 +12,10 @@ SIGN=0; [ "${1:-}" = --sign ] && SIGN=1
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)
 BUILD="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo nogit) $(date -u +%Y%m%d.%H%M%S)"
 [ -f "$ROOT/dist/TuneSync_Control.dll" ] || { echo "no dist/TuneSync_Control.dll: run tools/build-dll.sh first" >&2; exit 1; }
-KEYS=${TUNESYNC_SECRETS:-$HOME/secrets}
 SIGNARGS=(); MOUNTS=()
 if [ $SIGN = 1 ]; then
-    for k in codesign.key codesign.crt; do [ -f "$KEYS/$k" ] || { echo "no $KEYS/$k" >&2; exit 1; }; done
-    MOUNTS=(-v "$KEYS/codesign.key:/keys/codesign.key:ro" -v "$KEYS/codesign.crt:/keys/codesign.crt:ro"
+    for k in "${TUNESYNC_CODESIGN_KEY:-}" "${TUNESYNC_CODESIGN_CERT:-}"; do [ -n "$k" ] && [ -f "$k" ] || { echo "--sign needs TUNESYNC_CODESIGN_KEY and TUNESYNC_CODESIGN_CERT (PEM files)" >&2; exit 1; }; done
+    MOUNTS=(-v "$TUNESYNC_CODESIGN_KEY:/keys/codesign.key:ro" -v "$TUNESYNC_CODESIGN_CERT:/keys/codesign.crt:ro"
             -v "$ROOT/tools/tssign:/usr/local/bin/hl-sign:ro")
     SIGNARGS=('/DSign=1' '/Stssign=cmd /c Z:\usr\local\bin\hl-sign.bat $f')
     # The DLL first (osslsigncode in the same image).

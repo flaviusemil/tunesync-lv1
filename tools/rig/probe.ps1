@@ -1,7 +1,7 @@
 # probe.ps1 - is LV1's UI thread responsive? Sends WM_NULL to LV1's main window every
 # 10 ms for -Seconds and reports the round trips (SendMessageTimeout, 2 s cap). Run it in
 # the desktop session (the interactive task), not from SSH: window handles are per session.
-#   probe.ps1 -Seconds 20 -Out C:\Users\you\tunesync-probe.txt
+#   probe.ps1 -Seconds 20 -Out $env:USERPROFILE\tunesync-probe.txt
 param([int]$Seconds = 20, [string]$Out = "$env:USERPROFILE\tunesync-probe.txt")
 Add-Type -Namespace TS -Name W -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true)]

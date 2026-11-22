@@ -13,7 +13,7 @@
 //! Receiver feedback (RS) goes to every connected peer's control port once a second
 //! while its sequence moves.
 //!
-//! The interop rules learned with preprobe hold here:
+//! The interop rules learned with Headlink's preprobe hold here:
 //! replies always go to the port a packet came from (rtpmidid answers the data
 //! invitation from control + 1, a NAT may remap it), RS carries the 32-bit extended
 //! sequence, and an invited peer may run its own clock sync, which we answer.

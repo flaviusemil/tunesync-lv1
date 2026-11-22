@@ -1,7 +1,7 @@
 # screen.ps1 - (desktop session) the whole screen in real pixels, plus the visible top-level
 # windows from the top of the z-order down, with their rects and DPI.
-#   screen.ps1 -Out C:\Users\you\tunesync\screen.png
-param([string]$Out = "C:\Users\you\tunesync\screen.png")
+#   screen.ps1 -Out $env:USERPROFILE\tunesync\screen.png
+param([string]$Out = "$env:USERPROFILE\tunesync\screen.png")
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
