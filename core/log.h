@@ -29,6 +29,7 @@ class LogRing {
     void set_sink(std::function<void(const LogLine&)> f) { sink_ = std::move(f); }
 
     void add(Level level, const std::string& text);
+    std::string stamp_now() const { return stamp_ ? stamp_() : std::string(); }
     std::vector<LogLine> snapshot() const;
     uint64_t generation() const;   // bumps on every add or clear: the window redraws when it moves
     void clear();

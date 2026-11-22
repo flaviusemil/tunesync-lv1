@@ -153,6 +153,8 @@ int main() {
         CHECK(found[1].where == "Ch 44 (slot 3)", "slot shown: %s", found[1].where.c_str());
         CHECK(!found[2].receive && found[2].layoutOk, "lock read");
         CHECK(found[3].where == "Gp 1 (slot 2)", "group: %s", found[3].where.c_str());
+        CHECK(found[0].label == "Ch 43" && found[0].name == "Vox 1" && found[1].label == "Ch 44" && found[1].name.empty(),
+              "label and name apart");
 
         Intent i; i.pitchClass = 1; i.scale = 3;    // the C#/Db note + Natural Minor
         ApplyResult r = apply(m, found, i, Spelling::Sharp);
@@ -197,10 +199,25 @@ int main() {
         r = apply(m, found, l, Spelling::Sharp);
         CHECK(r.failed.size() == 1 && has(r.summary(), "FAILED 1 (Ch 44 (slot 3): key reads"), "read-back: %s", r.summary().c_str());
 
+        CHECK(r.brief() == "set 2, 1 locked, 1 FAILED" && r.problem(), "brief: %s", r.brief().c_str());
+
         // none at all
         FakeMixer empty;
         r = apply(empty, discover(empty, default_ranges()), l, Spelling::Sharp);
-        CHECK(has(r.summary(), "no Tune RT found"), "empty: %s", r.summary().c_str());
+        CHECK(has(r.summary(), "no Tune RT found") && r.brief() == "no Tune RT found" && r.problem(), "empty: %s", r.summary().c_str());
+
+        // LV1's own default names are left out
+        CHECK(is_default_name("Channel 76", 75) && is_default_name("", 3) && is_default_name("FX Return 2", 1), "default names");
+        CHECK(!is_default_name("Channel 76", 74) && !is_default_name("Vox 1", 0) && !is_default_name("76", 75) &&
+              !is_default_name("Kick 2", 0) && !is_default_name("Ch-1 1", 0), "real names");
+        FakeMixer dn;
+        dn.names[{0, 75}] = "Channel 76";
+        dn.names[{0, 76}] = "Lead Vox";
+        dn.tune(0, 75, 0, 0, 2, true);
+        dn.tune(0, 76, 0, 0, 2, true);
+        found = discover(dn, default_ranges());
+        CHECK(found.size() == 2 && found[0].where == "Ch 76" && found[0].name.empty() && found[1].where == "Ch 77 Lead Vox",
+              "default name dropped: %s / %s", found[0].where.c_str(), found[1].where.c_str());
     }
 
     // ---- settings
@@ -214,6 +231,18 @@ int main() {
         t = from_ini("channel=17\nscale_cc=120\nrtp_port=80\nfoo=1\nspelling=x\nmidi_port = A B \n", &w);
         CHECK(t.channel == 16 && t.scaleCc == 20 && t.rtpPort == 5004 && t.spelling == Spelling::Sharp && t.midiPort == "A B", "defaults kept");
         CHECK(w.size() == 5, "%zu warnings", w.size());
+
+        // remembered RTP peers
+        s.rtpPeers = {{"192.0.2.41", 5004, "Playback Mac"}, {"192.0.2.42", 5008, ""}};
+        w.clear();
+        t = from_ini(to_ini(s), &w);
+        CHECK(w.empty() && t.rtpPeers.size() == 2 && t.rtpPeers[0].ip == "192.0.2.41" && t.rtpPeers[0].port == 5004 &&
+              t.rtpPeers[0].name == "Playback Mac" && t.rtpPeers[1].port == 5008 && t.rtpPeers[1].name.empty(), "peers round trip");
+        t = from_ini("rtp_peer=192.0.2.41:5004 A\nrtp_peer=192.0.2.41:5004 again\nrtp_peer=host:5004\nrtp_peer=1.2.3:5004\n"
+                     "rtp_peer=1.2.3.4:0\nrtp_peer=1.2.3.4\n", &w);
+        CHECK(t.rtpPeers.size() == 1 && w.size() == 4, "bad peers skipped, duplicates merged (%zu, %zu warnings)", t.rtpPeers.size(), w.size());
+        CHECK(is_ipv4("192.0.2.41") && is_ipv4("0.0.0.0") && !is_ipv4("256.1.1.1") && !is_ipv4("1.2.3") && !is_ipv4("1.2.3.4.5") &&
+              !is_ipv4("1..2.3") && !is_ipv4("+1.2.3.4") && !is_ipv4(""), "ipv4");
     }
 
     // ---- engine end to end
@@ -242,21 +271,38 @@ int main() {
         CHECK(has(lines[0].text, "RTP Playback-Mac CC 20 = 3"), "message logged: %s", lines[0].text.c_str());
         Engine::Status st = e.status();
         CHECK(st.tunes == 2 && st.lastMidiMs == 1004 && has(st.lastResult, "set 2"), "status");
+        CHECK(st.changes == 1 && st.last.label == "A Natural Minor" && st.last.source == "RTP Playback-Mac" &&
+              st.last.brief == "set 2" && !st.last.problem, "last change: %s / %s / %s", st.last.label.c_str(),
+              st.last.source.c_str(), st.last.brief.c_str());
+
+        // main and backup rig send the same cue: one change, both named
+        e.on_midi("RTP Main", note(16, 59, 100).data(), 3, 1500);
+        e.on_midi("RTP Backup", note(16, 59, 100).data(), 3, 1502);
+        e.on_midi("RTP Main", cc(16, 20, 3).data(), 3, 1503);
+        e.tick(1540);
+        st = e.status();
+        CHECK(st.changes == 2 && st.last.source == "RTP Main + RTP Backup" && st.last.label == "B Natural Minor", "two rigs: %s",
+              st.last.source.c_str());
+        CHECK(m.key(0, 42, 0) == 16, "B");
+        send(note(16, 57, 100), 1600);
+        e.tick(1640);
+        CHECK(e.status().last.source == "RTP Playback-Mac", "a new change has its own source");
         CHECK(e.tunes().size() == 2 && e.tunes()[0].key == 13, "window list shows the new key");
 
         // a keyboard on another channel: one line, then quiet for 5 s
+        const int wakesBefore = wakes;
         send(note(1, 60, 90), 2000);
         e.tick(2000);
         for (int i = 1; i < 50; ++i) send(note(1, 60 + i % 12, 90), 2000 + i);
-        CHECK(wakes == 3, "no wake per ignored message within 5 s (%d)", wakes);
+        CHECK(wakes == wakesBefore + 1, "no wake per ignored message within 5 s (%d)", wakes - wakesBefore);
         e.tick(2100);
         lines = log.snapshot();
-        CHECK(lines.size() == 4 && has(lines[3].text, "ignored 1 message"), "first ignored logged at once: %s", lines.back().text.c_str());
+        CHECK(lines.size() == 10 && has(lines[9].text, "ignored 1 message"), "first ignored logged at once: %s", lines.back().text.c_str());
         const int64_t wait = e.tick(2200);
         CHECK(wait > 0 && wait <= 5000, "ignored summary scheduled in %lld ms", (long long)wait);
         e.tick(7100);
         lines = log.snapshot();
-        CHECK(lines.size() == 5 && has(lines[4].text, "ignored 49 messages"), "summary: %s", lines.back().text.c_str());
+        CHECK(lines.size() == 11 && has(lines[10].text, "ignored 49 messages"), "summary: %s", lines.back().text.c_str());
         CHECK(m.key(0, 42, 0) == 13, "keyboard changed nothing");
 
         // Apply now from the window
@@ -264,6 +310,7 @@ int main() {
         e.apply_now(t, 9000);
         e.tick(9000);
         CHECK(m.key(0, 42, 0) == 3 && m.scale(0, 42, 0) == 2, "apply now");
+        CHECK(e.status().last.source == "Apply now" && e.status().last.label == "D Major", "apply now banner");
 
         // scale CC out of range: logged as a warning, nothing changes
         send(cc(16, 20, 40), 10000);

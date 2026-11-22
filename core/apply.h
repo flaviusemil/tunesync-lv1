@@ -42,7 +42,9 @@ constexpr int kInsertSlots = 8;
 
 struct TuneInstance {
     int         trackType = 0, trackIndex = 0, slot = 0;
-    std::string where;          // "Ch 43 Vox 1", for the log and the window
+    std::string where;          // "Ch 43 Vox 1", for the log ("Ch 44 (slot 3)" past slot 1)
+    std::string label;          // "Ch 43", for the window
+    std::string name;           // "Vox 1": the track's own name, "" for LV1's default one
     int         key = -1, scale = -1;
     bool        receive = true; // false = Lock
     bool        layoutOk = true;
@@ -51,10 +53,17 @@ struct TuneInstance {
 
 std::vector<TuneInstance> discover(Mixer& m, const std::vector<TrackRange>& ranges);
 
+// LV1 names an untouched strip after itself ("Channel 76"): that says nothing the
+// label doesn't, so it is left out. True for "Channel 76", "Group 2", "FX 1"...
+bool is_default_name(const std::string& name, int trackIndex);
+
 struct ApplyResult {
     std::string              label;   // what was asked for, e.g. "C#/Db Natural Minor"
     std::vector<std::string> set, unchanged, locked, bad, failed;
     std::string summary() const;      // one log line
+    std::string brief() const;        // "set 2, 1 locked": the window's last-change banner
+    bool problem() const { return !failed.empty() || !bad.empty() || total() == 0; }
+    size_t total() const { return set.size() + unchanged.size() + locked.size() + bad.size() + failed.size(); }
 };
 
 ApplyResult apply(Mixer& m, const std::vector<TuneInstance>& tunes, const Intent& in, Spelling fallback);

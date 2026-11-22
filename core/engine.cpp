@@ -17,6 +17,13 @@ Settings Engine::settings() const {
     return settings_;
 }
 
+void Engine::add_source(const std::string& source) {
+    if (!pending_.pending()) pendingSources_.clear();
+    for (const std::string& s : pendingSources_)
+        if (s == source) return;
+    pendingSources_.push_back(source);
+}
+
 void Engine::on_midi(const std::string& source, const uint8_t* msg, size_t n, uint64_t nowMs) {
     std::string line;
     Level level = Level::Info;
@@ -34,6 +41,7 @@ void Engine::on_midi(const std::string& source, const uint8_t* msg, size_t n, ui
             lastIgnored_ = source + " " + m.text;
             due = ignored_in(nowMs) == 0;
         } else {
+            if (m.kind != MsgKind::OutOfRange) add_source(source);
             pending_.add(m, nowMs);
             line = source + " " + m.text;
             level = m.kind == MsgKind::OutOfRange ? Level::Warn : Level::Info;
@@ -51,6 +59,7 @@ void Engine::apply_now(const Intent& in, uint64_t nowMs) {
     if (const char* s = scale_name(in.scale)) what += (what.empty() ? "" : " ") + std::string(s);
     {
         std::lock_guard<std::mutex> g(mu_);
+        add_source("Apply now");
         pending_.add_now(in, nowMs);
     }
     log_.add(Level::Info, "Apply now: " + what);
@@ -69,10 +78,14 @@ int64_t Engine::tick(uint64_t nowMs) {
     Intent change;
     bool scan = false;
     Spelling fallback;
-    std::string ignoredLine;
+    std::string ignoredLine, source;
     {
         std::lock_guard<std::mutex> g(mu_);
-        if (pending_.due_in(nowMs) == 0) change = pending_.take();
+        if (pending_.due_in(nowMs) == 0) {
+            change = pending_.take();
+            for (const std::string& x : pendingSources_) source += (source.empty() ? "" : " + ") + x;
+            pendingSources_.clear();
+        }
         scan = scanWanted_;
         scanWanted_ = false;
         fallback = settings_.spelling;
@@ -91,12 +104,16 @@ int64_t Engine::tick(uint64_t nowMs) {
     if (!change.empty() || scan) {
         std::vector<TuneInstance> found = discover(mixer_, ranges_);
         std::string result;
+        Change last;
         if (!change.empty()) {
             const ApplyResult r = apply(mixer_, found, change, fallback);
             result = r.summary();
-            const bool problem = !r.failed.empty() || !r.bad.empty() ||
-                                 (r.set.empty() && r.unchanged.empty() && r.locked.empty());
-            log_.add(problem ? Level::Warn : Level::Ok, result);
+            log_.add(r.problem() ? Level::Warn : Level::Ok, result);
+            last.label = r.label;
+            last.stamp = log_.stamp_now();
+            last.source = source;
+            last.brief = r.brief();
+            last.problem = r.problem();
             found = discover(mixer_, ranges_);   // the window shows what LV1 now holds
         }
         size_t locked = 0;
@@ -105,7 +122,12 @@ int64_t Engine::tick(uint64_t nowMs) {
         tunes_ = std::move(found);
         status_.tunes = tunes_.size();
         status_.locked = locked;
-        if (!result.empty()) status_.lastResult = result;
+        ++status_.scans;
+        if (!result.empty()) {
+            status_.lastResult = result;
+            status_.last = std::move(last);
+            ++status_.changes;
+        }
     }
 
     std::lock_guard<std::mutex> g(mu_);

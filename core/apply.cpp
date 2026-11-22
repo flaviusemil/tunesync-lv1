@@ -14,12 +14,13 @@ bool whole(double v, int* out) {
     return true;
 }
 
-std::string where(Mixer& m, const TrackRange& r, int index, int slot) {
-    std::string s = std::string(r.label) + " " + std::to_string(index + 1);
-    const std::string name = m.track_name(r.trackType, index);
-    if (!name.empty()) s += " " + name;
-    if (slot > 0) s += " (slot " + std::to_string(slot + 1) + ")";
-    return s;
+void name_it(Mixer& m, const TrackRange& r, TuneInstance* t) {
+    t->label = std::string(r.label) + " " + std::to_string(t->trackIndex + 1);
+    t->name = m.track_name(r.trackType, t->trackIndex);
+    if (is_default_name(t->name, t->trackIndex)) t->name.clear();
+    t->where = t->label;
+    if (!t->name.empty()) t->where += " " + t->name;
+    if (t->slot > 0) t->where += " (slot " + std::to_string(t->slot + 1) + ")";
 }
 
 // Reads a parameter that must be a whole number whose text is names(value).
@@ -46,6 +47,15 @@ std::string join(const std::vector<std::string>& v) {
 
 }  // namespace
 
+bool is_default_name(const std::string& name, int trackIndex) {
+    if (name.empty()) return true;
+    // LV1's own words only: "Vox 1" on channel 1 is a real name.
+    static const char* const kWords[] = {"Channel", "Ch", "Input", "Group", "Gp", "FX", "Fx", "FX Return", "Return"};
+    for (const char* w : kWords)
+        if (name == std::string(w) + " " + std::to_string(trackIndex + 1)) return true;
+    return false;
+}
+
 std::vector<TrackRange> default_ranges() { return {{0, 128, "Ch"}, {1, 16, "Gp"}, {2, 16, "Fx"}}; }
 
 std::vector<TuneInstance> discover(Mixer& m, const std::vector<TrackRange>& ranges) {
@@ -57,7 +67,7 @@ std::vector<TuneInstance> discover(Mixer& m, const std::vector<TrackRange>& rang
                 if (!code.ok || !is_tune_code(code.text)) continue;
                 TuneInstance t;
                 t.trackType = r.trackType; t.trackIndex = i; t.slot = s;
-                t.where = where(m, r, i, s);
+                name_it(m, r, &t);
                 int rcv = -1;
                 t.layoutOk = read_named(m, t, kParamKey, key_name, &t.key, &t.why) &&
                              read_named(m, t, kParamScale, scale_name, &t.scale, &t.why) &&
@@ -96,10 +106,19 @@ ApplyResult apply(Mixer& m, const std::vector<TuneInstance>& tunes, const Intent
     return res;
 }
 
+std::string ApplyResult::brief() const {
+    if (total() == 0) return "no Tune RT found";
+    std::string s = "set " + std::to_string(set.size());
+    if (!unchanged.empty()) s += ", " + std::to_string(unchanged.size()) + " already there";
+    if (!locked.empty()) s += ", " + std::to_string(locked.size()) + " locked";
+    if (!bad.empty()) s += ", " + std::to_string(bad.size()) + " unexpected";
+    if (!failed.empty()) s += ", " + std::to_string(failed.size()) + " FAILED";
+    return s;
+}
+
 std::string ApplyResult::summary() const {
     std::string s = label + ": ";
-    const size_t n = set.size() + unchanged.size() + locked.size() + bad.size() + failed.size();
-    if (n == 0) return s + "no Tune RT found";
+    if (total() == 0) return s + "no Tune RT found";
     s += "set " + std::to_string(set.size());
     if (!set.empty()) s += " (" + join(set) + ")";
     if (!unchanged.empty()) s += ", already there " + std::to_string(unchanged.size()) + " (" + join(unchanged) + ")";

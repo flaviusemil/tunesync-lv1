@@ -39,10 +39,21 @@ class Engine {
     // messages. Returns ms until it wants to run again, -1 = only when woken.
     int64_t tick(uint64_t nowMs);
 
+    // The last change applied, for the window's banner.
+    struct Change {
+        std::string label;     // "A Natural Minor", "C#/Db" (key only)
+        std::string stamp;     // the log's time stamp when it was applied
+        std::string source;    // "RTP Playback-Mac", "Apply now", "RTP Main + RTP Backup"
+        std::string brief;     // "set 2, 1 locked"
+        bool        problem = false;
+    };
     struct Status {
         uint64_t    lastMidiMs = 0;    // nowMs of the last message, 0 = none yet
         std::string lastSource, lastResult;
         size_t      tunes = 0, locked = 0;
+        uint64_t    changes = 0;       // how many changes were applied (the window redraws on a new one)
+        uint64_t    scans = 0;         // how many scans ran
+        Change      last;              // valid when changes > 0
     };
     Status status() const;
     std::vector<TuneInstance> tunes() const;   // from the last scan or apply
@@ -51,6 +62,7 @@ class Engine {
 
   private:
     void wake() { if (wake_) wake_(); }
+    void add_source(const std::string& source);   // with mu_ held
     // ms until an "ignored" line may be logged (0 = now), with mu_ held.
     int64_t ignored_in(uint64_t nowMs) const {
         if (lastIgnoredLog_ == kNever || nowMs - lastIgnoredLog_ >= kIgnoredLogMs) return 0;
@@ -66,6 +78,7 @@ class Engine {
     mutable std::mutex        mu_;          // everything below
     Settings                  settings_;
     Coalescer                 pending_;
+    std::vector<std::string>  pendingSources_;  // who asked for the pending change
     bool                      scanWanted_ = false;
     size_t                    ignored_ = 0;
     std::string               lastIgnored_;

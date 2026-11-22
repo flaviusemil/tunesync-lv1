@@ -21,6 +21,24 @@ bool to_int(const std::string& v, int lo, int hi, int* out) {
 
 }  // namespace
 
+bool is_ipv4(const std::string& s) {
+    int parts = 0;
+    size_t i = 0;
+    while (i <= s.size()) {
+        size_t j = s.find('.', i);
+        if (j == std::string::npos) j = s.size();
+        int n = 0;
+        if (j == i || j - i > 3) return false;
+        for (size_t k = i; k < j; ++k)
+            if (s[k] < '0' || s[k] > '9') return false;
+        if (!to_int(s.substr(i, j - i), 0, 255, &n)) return false;
+        ++parts;
+        i = j + 1;
+        if (j == s.size()) break;
+    }
+    return parts == 4;
+}
+
 std::string to_ini(const Settings& s) {
     std::string o = "[tune-remote]\n";
     o += "midi_port=" + s.midiPort + "\n";
@@ -30,6 +48,8 @@ std::string to_ini(const Settings& s) {
     o += "channel=" + (s.channel == 0 ? std::string("omni") : std::to_string(s.channel)) + "\n";
     o += "scale_cc=" + std::to_string(s.scaleCc) + "\n";
     o += std::string("spelling=") + (s.spelling == Spelling::Flat ? "flats" : "sharps") + "\n";
+    for (const Settings::Peer& p : s.rtpPeers)
+        o += "rtp_peer=" + p.ip + ":" + std::to_string(p.port) + (p.name.empty() ? "" : " " + p.name) + "\n";
     return o;
 }
 
@@ -56,6 +76,21 @@ Settings from_ini(const std::string& text, std::vector<std::string>* warnings) {
         else if (k == "spelling") {
             ok = v == "sharps" || v == "flats";
             if (ok) s.spelling = v == "flats" ? Spelling::Flat : Spelling::Sharp;
+        } else if (k == "rtp_peer") {
+            // ip:port, then the name it was found under
+            Settings::Peer p;
+            const size_t sp = v.find(' ');
+            const std::string addr = v.substr(0, sp);
+            const size_t colon = addr.rfind(':');
+            ok = colon != std::string::npos && colon > 0 && is_ipv4(addr.substr(0, colon)) &&
+                 to_int(addr.substr(colon + 1), 1, 65534, &p.port);
+            if (ok) {
+                p.ip = addr.substr(0, colon);
+                if (sp != std::string::npos) p.name = trim(v.substr(sp + 1));
+                bool dup = false;
+                for (const Settings::Peer& q : s.rtpPeers) dup |= q == p;
+                if (!dup && s.rtpPeers.size() < kMaxRtpPeers) s.rtpPeers.push_back(p);
+            }
         } else { warn("unknown setting " + k); continue; }
         if (!ok) warn("bad value for " + k + ": \"" + v + "\", kept the default");
     }
