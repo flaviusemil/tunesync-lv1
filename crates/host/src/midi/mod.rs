@@ -4,7 +4,8 @@
 //! handle: the port is reopened whenever a port of that name reappears (a USB interface
 //! replugged, a network MIDI driver reconnecting). Every OS MIDI call happens on the
 //! worker; the driver's callback only queues bytes, and the worker delivers whole
-//! messages. Built from Headlink's tools/preprobe/midiport.cpp (demo/pre-probe), input only.
+//! messages. Built from Headlink's tools/preprobe/midiport.cpp (demo/pre-probe), input only:
+//! WinMM on Windows, CoreMIDI on macOS.
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -17,9 +18,14 @@ mod winmm;
 #[cfg(windows)]
 use winmm as backend;
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+mod coremidi;
+#[cfg(target_os = "macos")]
+use coremidi as backend;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod none;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use none as backend;
 
 fn data_len(s: u8) -> usize {
@@ -92,6 +98,39 @@ pub fn split_midi(p: &[u8]) -> Vec<Vec<u8>> {
     out
 }
 
+/// Each packet's bytes in a CoreMIDI `MIDIPacketList`: a u32 count, then packets of a u64
+/// timestamp, a u16 length and the data. On ARM each packet starts on the next 4-byte
+/// boundary (MIDIPacketNext); on Intel they are packed. `len` bounds the walk for tests;
+/// CoreMIDI's own lists are walked with `usize::MAX`.
+///
+/// # Safety
+/// `list` points at a packet list of at least `len` bytes (or a whole valid list).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) unsafe fn walk_packet_list(list: *const u8, len: usize, align4: bool, mut f: impl FnMut(&[u8])) {
+    if list.is_null() || len < 4 {
+        return;
+    }
+    let n = std::ptr::read_unaligned(list as *const u32);
+    let mut off = 4usize;
+    for _ in 0..n.min(4096) {
+        if off.saturating_add(10) > len {
+            return;
+        }
+        let p = list.add(off);
+        let plen = std::ptr::read_unaligned(p.add(8) as *const u16) as usize;
+        if off.saturating_add(10).saturating_add(plen) > len {
+            return;
+        }
+        let data = p.add(10);
+        f(std::slice::from_raw_parts(data, plen));
+        let mut next = data as usize + plen;
+        if align4 {
+            next = (next + 3) & !3;
+        }
+        off = next - list as usize;
+    }
+}
+
 pub type MidiFn = Box<dyn Fn(&str, &[u8]) + Send + Sync>;
 pub type LogFn = Box<dyn Fn(&str) + Send + Sync>;
 
@@ -115,7 +154,7 @@ struct State {
 
 impl Shared {
     /// From the driver's callback (any thread): queue bytes for the worker.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
     pub(crate) fn incoming(&self, p: &[u8]) {
         if p.is_empty() {
             return;
@@ -183,6 +222,11 @@ impl MidiIn {
 }
 
 fn run(sh: Arc<Shared>) {
+    // CoreMIDI's client is made on the main queue: wait for it, without spinning.
+    while sh.run.load(Ordering::SeqCst) && !backend::ready() {
+        let s = sh.state.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = sh.cv.wait_timeout(s, Duration::from_millis(100));
+    }
     let mut port: Option<backend::Port> = None;
     let mut next_scan = Instant::now();
     let mut last_note = String::new();
@@ -248,13 +292,50 @@ fn run(sh: Arc<Shared>) {
             }
         }
     }
-    port.take(); // closes it (Windows)
+    port.take(); // closes it
     sh.state.lock().unwrap_or_else(|e| e.into_inner()).open.clear();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::split_midi;
+    use super::{split_midi, walk_packet_list};
+
+    /// A MIDIPacketList as CoreMIDI lays it out, in a 4-byte aligned buffer.
+    fn packet_list(packets: &[&[u8]], align4: bool) -> (Vec<u32>, usize) {
+        let mut b: Vec<u8> = (packets.len() as u32).to_ne_bytes().to_vec();
+        for (i, p) in packets.iter().enumerate() {
+            b.extend_from_slice(&(1000 + i as u64).to_ne_bytes());
+            b.extend_from_slice(&(p.len() as u16).to_ne_bytes());
+            b.extend_from_slice(p);
+            if align4 {
+                while !b.len().is_multiple_of(4) {
+                    b.push(0xEE); // padding, never read as data
+                }
+            }
+        }
+        let len = b.len();
+        let mut words = vec![0u32; len.div_ceil(4)];
+        unsafe { std::ptr::copy_nonoverlapping(b.as_ptr(), words.as_mut_ptr() as *mut u8, len) };
+        (words, len)
+    }
+
+    #[test]
+    fn packet_lists() {
+        let pk: [&[u8]; 3] = [&[0x9F, 57, 100], &[0xBF, 20, 3, 21, 4], &[0xF8]];
+        for align4 in [false, true] {
+            let (buf, len) = packet_list(&pk, align4);
+            let mut got: Vec<Vec<u8>> = Vec::new();
+            unsafe { walk_packet_list(buf.as_ptr() as *const u8, len, align4, |p| got.push(p.to_vec())) };
+            assert_eq!(got, pk.iter().map(|p| p.to_vec()).collect::<Vec<_>>(), "align4 = {align4}");
+            // a list cut short stops at the last whole packet
+            let mut cut: Vec<Vec<u8>> = Vec::new();
+            unsafe { walk_packet_list(buf.as_ptr() as *const u8, len - 2, align4, |p| cut.push(p.to_vec())) };
+            assert_eq!(cut.len(), 2, "align4 = {align4}");
+        }
+        let mut none = 0;
+        unsafe { walk_packet_list(std::ptr::null(), usize::MAX, true, |_| none += 1) };
+        assert_eq!(none, 0);
+    }
 
     #[test]
     fn split() {

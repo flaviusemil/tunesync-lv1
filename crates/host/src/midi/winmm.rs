@@ -20,6 +20,11 @@ fn wide_to_string(w: &[u16]) -> String {
     String::from_utf16_lossy(&w[..n])
 }
 
+/// WinMM needs no setup: always ready.
+pub fn ready() -> bool {
+    true
+}
+
 pub fn list() -> Vec<String> {
     let n = unsafe { midiInGetNumDevs() }.min(64);
     (0..n)

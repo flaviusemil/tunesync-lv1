@@ -7,8 +7,8 @@
 //!
 //! Windows 10 1809+ has this built in (dnsapi DnsServiceRegister / DnsServiceBrowse); the
 //! functions are looked up at run time, so an older Windows still loads the DLL and just
-//! says it can't advertise (typing the host's address on the Mac still works). macOS gets
-//! dns_sd here next; elsewhere there is none.
+//! says it can't advertise (typing the host's address on the Mac still works). macOS has
+//! mDNSResponder (dns_sd.h, in libSystem). Elsewhere there is none.
 
 /// A network MIDI session someone else advertises.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -30,7 +30,14 @@ mod win;
 #[cfg(windows)]
 pub use win::Dnssd;
 
-#[cfg(not(windows))]
+#[cfg(any(test, target_os = "macos"))]
+mod book;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::Dnssd;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod none {
     use super::{FoundSession, LogFn};
 
@@ -52,5 +59,5 @@ mod none {
         }
     }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub use none::Dnssd;

@@ -1,7 +1,11 @@
-//! No MIDI ports (a Linux development build). macOS gets CoreMIDI here next.
+//! No MIDI ports (a Linux development build).
 use std::sync::Arc;
 
 use super::Shared;
+
+pub fn ready() -> bool {
+    true
+}
 
 pub fn list() -> Vec<String> {
     Vec::new()

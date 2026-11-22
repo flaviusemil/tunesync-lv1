@@ -65,6 +65,19 @@ mod imp {
         Ok(f(core, arg))
     }
 
+    /// macOS: the kernel copies it, and an unmapped address fails cleanly (the Mach
+    /// equivalent of ReadProcessMemory on our own task).
+    #[cfg(target_os = "macos")]
+    pub unsafe fn read_memory(dst: *mut u8, src: *const u8, n: usize) -> bool {
+        extern "C" {
+            static mach_task_self_: u32;
+            fn mach_vm_read_overwrite(task: u32, addr: u64, size: u64, data: u64, out: *mut u64) -> i32;
+        }
+        let mut got = 0u64;
+        mach_vm_read_overwrite(mach_task_self_, src as u64, n as u64, dst as u64, &mut got) == 0 && got == n as u64
+    }
+
+    #[cfg(not(target_os = "macos"))]
     pub unsafe fn read_memory(dst: *mut u8, src: *const u8, n: usize) -> bool {
         std::ptr::copy_nonoverlapping(src, dst, n);
         true

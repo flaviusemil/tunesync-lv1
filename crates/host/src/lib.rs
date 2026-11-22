@@ -6,6 +6,8 @@
 //! Headlink drives the same runtime through the C API (crates/capi).
 pub mod dnssd;
 pub mod filelog;
+#[cfg(target_os = "macos")]
+pub mod mac;
 pub mod midi;
 pub mod rtp;
 pub mod runtime;

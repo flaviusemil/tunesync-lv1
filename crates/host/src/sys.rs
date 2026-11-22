@@ -72,7 +72,9 @@ pub fn clock_text() -> String {
 /// Where settings.ini and tunesync.log live: `%ProgramData%\TuneSync` on Windows (the
 /// installer creates it with Users-modify, because a folder an elevated installer makes
 /// is otherwise not writable by LV1's normal token), `/Library/Application Support/TuneSync`
-/// on macOS. `TUNESYNC_DIR` overrides it (tests, the fake LV1).
+/// on macOS (made by install.sh, group staff, writable by every local user) - or, when that
+/// is not there or not writable (a bundle installed without sudo),
+/// `~/Library/Application Support/TuneSync`. `TUNESYNC_DIR` overrides it (tests, the fake LV1).
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("TUNESYNC_DIR") {
         return PathBuf::from(d);
@@ -84,7 +86,26 @@ pub fn data_dir() -> PathBuf {
     }
     #[cfg(target_os = "macos")]
     {
-        PathBuf::from("/Library/Application Support/TuneSync")
+        static DIR: OnceLock<PathBuf> = OnceLock::new();
+        DIR.get_or_init(|| {
+            extern "C" {
+                fn access(path: *const std::ffi::c_char, mode: i32) -> i32;
+            }
+            let writable = |p: &std::path::Path| {
+                use std::os::unix::ffi::OsStrExt;
+                let c = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap_or_default();
+                p.is_dir() && unsafe { access(c.as_ptr(), 2 /* W_OK */) } == 0
+            };
+            let shared = PathBuf::from("/Library/Application Support/TuneSync");
+            if writable(&shared) {
+                return shared;
+            }
+            match std::env::var_os("HOME") {
+                Some(h) => PathBuf::from(h).join("Library/Application Support/TuneSync"),
+                None => std::env::temp_dir().join("TuneSync"),
+            }
+        })
+        .clone()
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
