@@ -461,11 +461,28 @@ find a wrong CoreText truncation constant (text was cut in the middle), panics p
 AppKit handlers, a re-entrant `&mut` window state, a floating window staying above other
 apps, and a session name lost at Destroy. All are fixed.
 
-**Not verified yet.** Nothing has run on a Mac:
-- the bundle loading in LV1;
-- CoreMIDI, DNS-SD and the window in LV1's process;
+**On a Mac (2026-11-23).** The build Mac: Intel, macOS 12.7.6, LV1 17.3.108 installed but
+closed. `tools/mac/run-sim.sh --window 8` passed 29 of 29 checks on the first run:
+
+| Check | Result |
+|---|---|
+| Load | CFBundle loaded the bundle, all 18 exports resolved, interface 6, Create in 3 ms with the callback-table check |
+| RTP-MIDI cue | CC 20 = 4 + Note D: both Rcv Tunes to D Harmonic Minor in 52 ms, Lock untouched, 4 Touch / 4 Release |
+| CoreMIDI | a virtual source opened by name; CC 20 = 2 + Note E applied in 47 ms; unplugged: noticed; plugged in again: reopened, and Note G applied |
+| DNS-SD | advertised as "TuneSync" through mDNSResponder |
+| Window | opened from the main thread; the page, the RTP-MIDI sheet (tap) and the page again (Escape) rendered as PNGs, crisp at Retina scale, with the native session-name field in place |
+| Destroy | 232 ms; the window hidden afterwards |
+
+Read on the same Mac:
+- LV1's preferences are `~/Library/Preferences/Waves Preferences/LV1.Mixer SoundGrid.preferences`.
+- LV1's own entry there reads `Modules/SurfaceDriver_App.bundle`, as `lv1-prefs.sh` assumes.
+- LV1 17.3.108 is signed with flags 0x0: no hardened runtime.
+
+**Not verified yet:**
+- TuneSync inside the real LV1: its callbacks, CoreMIDI and DNS-SD in LV1's process, the
+  window opened from Setup → Control Surfaces (with Setup modal);
 - arm64;
-- the preferences folder;
+- browsing for other Macs on a real network;
 - Local Network on macOS 15.
 
 ## Structure
