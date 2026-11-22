@@ -1,0 +1,20 @@
+# Tune Remote - Rust workspace.
+#   crates/core   Tune tables, MIDI -> intent, coalescing, discovery + apply against a
+#                 Mixer trait, the engine, settings (ini), the log ring. No OS, no LV1.
+#   crates/rtp    RTP-MIDI (AppleMIDI): codec + a session several peers join.
+#   crates/ui     the settings window as a portable view model (layout, hit-test).
+#   crates/lv1    TuneRemote_Control.dll: the LV1 surface driver (Windows now, Mac next).
+#   crates/sim    a fake LV1 (MixerCoreSG + host) to run the DLL under Wine.
+# Build and test: tools/cargo.sh (runs in the tune-remote-rust:1 image).
+[workspace]
+resolver = "2"
+members = ["crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[profile.release]
+opt-level = 2
+debug = 1
