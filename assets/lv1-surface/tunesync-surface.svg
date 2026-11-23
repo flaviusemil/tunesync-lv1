@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 128" width="200" height="128" role="img" aria-label="TuneSync">
+  <title>TuneSync</title>
+  <!-- The picture LV1 shows on TuneSync's slot in Setup > System Inventory > CONTROLS.
+       LV1 draws it as the border-image of a 100x64 frame; like LV1's own surface picture
+       this is the 2x drawing (200x128). Rendered to tunesync-surface@2x.png (200x128) and
+       tunesync-surface.png (100x64); see render.sh. -->
+  <defs>
+    <!-- LV1's device-picture ground: #333 at the top, black from 80 % down -->
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#333333"/>
+      <stop offset="0.5" stop-color="#0d0d0d"/>
+      <stop offset="0.8" stop-color="#000000"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="128" fill="url(#ground)"/>
+
+  <!-- the mark without its tile (the ground is already dark): 50 px tall, centred -->
+  <g transform="translate(67.71 15.04) scale(0.9936)">
+    <path fill="#3fb37f" d="M18 7h7V21.5a7.5 7.5 0 0 0 15 0V7h7V21.5A14.5 14.5 0 0 1 37.89 34.96A3 3 0 0 0 36 37.75V49h-7V37.75A3 3 0 0 0 27.11 34.96A14.5 14.5 0 0 1 18 21.5Z"/>
+    <ellipse cx="27.32" cy="50.5" rx="9" ry="6.4" transform="rotate(-22 27.32 50.5)" fill="#e8eaed"/>
+  </g>
+
+  <!-- the wordmark from tunesync-logo.svg, 144 px wide (cap height 25), baseline at y 106.
+       Weight 9 -> 13: a 4-unit stroke in the fill colour, so it still reads when LV1
+       halves it on a 100 % screen (LV1's own lettering here is about 6 px at 2x). -->
+  <g transform="translate(28 81) scale(0.3566)" stroke-width="4" stroke-linejoin="round">
+    <g fill="#e8eaed" stroke="#e8eaed">
+      <path d="M0 0h44v9H26.5V70h-9V9H0Z"/>
+      <path d="M37.5 20h9V51a11 11 0 0 0 22 0V20h9V51a20 20 0 0 1-40 0Z"/>
+      <path d="M91.5 70V39a20 20 0 0 1 40 0V70h-9V39a11 11 0 0 0-22 0V70Z"/>
+      <path d="M192.11 49.5A26 26 0 1 0 186.42 61.71L179.52 55.93A17 17 0 0 1 150.11 49.5ZM150.11 40.5A17 17 0 0 1 182.89 40.5Z"/>
+    </g>
+    <g fill="#3fb37f" stroke="#3fb37f">
+      <path d="M240.53 7.15A20.18 18.5 0 1 0 213.47 33.39L230.43 42.66A12.3 10.5 0 1 1 213.6 57.37L206.14 62.4A21.3 19.5 0 1 0 234.71 34.75L217.75 25.49A11.18 9.5 0 1 1 233.07 12.19Z"/>
+      <path d="M255.5 20h9V51a11 11 0 0 0 22 0V20h9V70a20 20 0 0 1-20 20H263.5v-9H275.5a11 11 0 0 0 11-11V67.7A20 20 0 0 1 255.5 51Z"/>
+      <path d="M309.5 70V39a20 20 0 0 1 40 0V70h-9V39a11 11 0 0 0-22 0V70Z"/>
+      <path d="M403.82 27.6A26 26 0 1 0 403.82 62.4L397.13 56.38A17 17 0 1 1 397.13 33.62Z"/>
+    </g>
+  </g>
+</svg>

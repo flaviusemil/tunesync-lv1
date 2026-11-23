@@ -93,10 +93,12 @@ impl Lv1 {
     }
 
     /// SetMixerParam SurfaceStatus: the status Setup > Control Surfaces shows beside this
-    /// surface (Mackie: "ON" in 0xFF00, "N/A" in 0xFF0000). `surface_type` is the type
+    /// surface (Mackie: "ON" in 0xFF00, "N/A" in 0xFF0000) and the picture on its tile
+    /// (`picture`: an absolute path to a file that exists, or "" for LV1's own). Send the
+    /// picture every time: an empty one brings LV1's back. `surface_type` is the type
     /// `WMSD_GetAvailableControllerInfo` gave. Ok(0) = LV1 found the surface.
-    pub fn set_surface_status(&self, surface_type: &str, status: &str, color: u32) -> Result<i32, Fault> {
-        let mut p = MixerParamSurfaceStatus::new(surface_type, status, color);
+    pub fn set_surface_status(&self, surface_type: &str, status: &str, color: u32, picture: &str) -> Result<i32, Fault> {
+        let mut p = MixerParamSurfaceStatus::new(surface_type, status, color, picture);
         self.call(self.cb.set_mixer_param, &mut *p as *mut MixerParamSurfaceStatus as *mut c_void)
     }
 

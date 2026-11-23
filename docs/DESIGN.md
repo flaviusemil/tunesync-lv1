@@ -166,6 +166,25 @@ The struct, read from both MixerCoreSGs 17.3.50 (`WCMixerCore::SetParamSurfaceDr
   and +0x455 on Windows. An extra string (1023 chars, which Mackie leaves empty) follows. The
   whole struct is 0x899 bytes on macOS and 0x895 on Windows.
 
+**TuneSync's picture.** LV1 shows each surface as a tile in Setup > System Inventory > CONTROLS
+(179x186: the name in the header, then the status in its colour, then a 100x64 picture). The
+extra string is that picture's path. LV1's GUI hands a non-empty one to
+`WCDeviceControl::SetDeviceImagePath`, which sets a stylesheet `border-image: url(path)`. An
+empty one gets LV1's own "Control WSG" picture, which Mackie, MIDI, FaderBank and MiDiPLUS all
+show. LV1's MyRemote names its own picture the same way, from its SDFilter `IconPath`. Two rules
+follow:
+- **Only an existing file.** LV1 has no fallback here, so a path to a missing file leaves the
+  frame blank. TuneSync checks the file exists before it sends the path.
+- **Every time.** A status with an empty extra brings LV1's picture back.
+
+The artwork is in `assets/lv1-surface`: an SVG, rendered to 100x64 and 200x128 by `render.sh`.
+LV1's picture is a 200x128 drawing (2x) on a dark vertical gradient, light artwork, square
+corners. The installer puts `tunesync-surface.png` and `tunesync-surface@2x.png` beside the DLL
+in Modules, where TuneSync looks for them. On a HiDPI screen Qt picks the @2x file beside the
+one named. TuneSync sends the path only when it is plain ASCII, because how LV1 turns the bytes
+into text is not known. Read in LV1 17.3.50's Mac GUI; MixerCoreSG keeps and returns the string
+the same way on Windows.
+
 ## Settings window
 
 Opened from LV1's **Setup → Control Surfaces** settings button (WMSD_ShowConfigWindow). It

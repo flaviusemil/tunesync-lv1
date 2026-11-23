@@ -1,6 +1,7 @@
 #!/bin/bash
 # build-dll.sh - TuneSync_Control.dll for Windows x64 (and the fake LV1 when it exists),
-# built in the tunesync-build:1 image. Writes dist/TuneSync_Control.dll + dist/BUILD.txt.
+# built in the tunesync-build:1 image. Writes dist/TuneSync_Control.dll + dist/BUILD.txt,
+# with LV1's tile picture beside the DLL.
 #   tools/build-dll.sh [--debug]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,6 +17,8 @@ for f in lv1sim.exe MixerCoreSG.dll; do
     [ -f "$ROOT/target/$T/$PROFILE/$f" ] && cp "$ROOT/target/$T/$PROFILE/$f" "$OUT/"
 done
 [ -f "$ROOT/target/$T/$PROFILE/mixercoresg.dll" ] && cp "$ROOT/target/$T/$PROFILE/mixercoresg.dll" "$OUT/MixerCoreSG.dll"
+# LV1's tile picture goes beside the DLL (the installer does the same), so lv1sim sees it.
+cp "$ROOT"/assets/lv1-surface/tunesync-surface.png "$ROOT"/assets/lv1-surface/tunesync-surface@2x.png "$OUT/"
 COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo nogit)
 git -C "$ROOT" diff --quiet HEAD -- 2>/dev/null || COMMIT="$COMMIT+"
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)

@@ -219,13 +219,14 @@ mod win {
                 counts(v.as_mut_ptr());
                 v
             };
-            let status_fn: unsafe extern "C" fn(*mut u8, *mut u8, usize) -> u32 = sym(core_dll, "fakecore_status");
-            let status = || {
-                let (mut ty, mut st) = ([0u8; 64], [0u8; 64]);
-                let color = status_fn(ty.as_mut_ptr(), st.as_mut_ptr(), 64);
+            let status_fn: unsafe extern "C" fn(*mut u8, *mut u8, *mut u8, usize) -> u32 = sym(core_dll, "fakecore_status");
+            let status_and_picture = || {
+                let (mut ty, mut st, mut pic) = ([0u8; 1024], [0u8; 1024], [0u8; 1024]);
+                let color = status_fn(ty.as_mut_ptr(), st.as_mut_ptr(), pic.as_mut_ptr(), 1024);
                 let text = |b: &[u8]| String::from_utf8_lossy(&b[..b.iter().position(|&x| x == 0).unwrap_or(0)]).into_owned();
-                (text(&ty), text(&st), color)
+                ((text(&ty), text(&st), color), text(&pic))
             };
+            let status = || status_and_picture().0;
             reset();
 
             let create: Create = sym(drv, "WMSD_CreateControllerForType");
@@ -238,6 +239,9 @@ mod win {
             wait_for(2000, || !status().0.is_empty());
             let s0 = status();
             c.check(s0 == ("TuneSync".into(), "N/A".into(), 0xFF0000), &format!("Control Surfaces shows {s0:?} before anything connects"));
+            // build-dll.sh puts the picture beside the DLL, as the installer does
+            let pic = status_and_picture().1;
+            c.check(pic.ends_with("\\tunesync-surface.png") && std::path::Path::new(&pic).is_file(), &format!("the tile picture is sent: {pic}"));
 
             // A playback rig joins the session and sends the cue.
             let rig = Session::new();

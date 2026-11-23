@@ -275,8 +275,14 @@ impl<const B: usize> FixedStr<B> {
 /// LV1 17.3.50 (`WCMixerCore::SetParamSurfaceDriverStatus` ->
 /// `WCSurfaceDriverManager::SetSurfaceStatusInfo(type, status, const long& color, extra)`)
 /// finds the surface by `surface_type` (what `WMSD_GetAvailableControllerInfo` gave as the
-/// type), keeps 12 characters of `status` and the colour, and does nothing when the type
-/// is empty. Mackie sends "ON" with 0xFF00 and "N/A" with 0xFF0000.
+/// type), keeps 12 characters of `status`, the colour and `extra`, and does nothing when the
+/// type is empty. Mackie sends "ON" with 0xFF00 and "N/A" with 0xFF0000 and no `extra`.
+///
+/// `extra` is the tile's picture: LV1's GUI (`WCSystemInventoryLogic_Base::RefreshSurfaceGUI`
+/// and `HandleSurfaceDriverStatusChanged(QString, QString, long, QString)`) hands a non-empty
+/// one to `WCDeviceControl::SetDeviceImagePath`, a stylesheet `border-image: url(path)` over
+/// a 100x64 frame (Qt takes `name@2x.png` beside it on a HiDPI screen). There is no fallback:
+/// a path to a missing file leaves the frame blank.
 ///
 /// `color` is a C `long`: 8 bytes on macOS, 4 on Windows, so everything after it sits 4
 /// bytes earlier on Windows (read from both MixerCoreSGs' constructors and handlers).
@@ -291,14 +297,15 @@ pub struct MixerParamSurfaceStatus {
     pub color: c_long,
     /// +0x459 (Windows +0x455)
     pub status: FixedStr<0x10>,
-    /// +0x481 (Windows +0x47D): Mackie leaves it empty
+    /// +0x481 (Windows +0x47D): the picture LV1 shows on the surface's tile in Setup >
+    /// System Inventory > CONTROLS, an absolute path; empty = LV1's generic one
     pub extra: FixedStr<0x400>,
 }
 const _: () = assert!(std::mem::size_of::<MixerParamSurfaceStatus>() == if cfg!(windows) { 0x895 } else { 0x899 });
 
 impl MixerParamSurfaceStatus {
     /// Boxed, so the strings' pointers keep pointing into it.
-    pub fn new(surface_type: &str, status: &str, color: u32) -> Box<Self> {
+    pub fn new(surface_type: &str, status: &str, color: u32, extra: &str) -> Box<Self> {
         let mut p = Box::new(MixerParamSurfaceStatus {
             head: ParamHeader::new(param::SURFACE_STATUS),
             surface_type: FixedStr::empty(),
@@ -309,7 +316,7 @@ impl MixerParamSurfaceStatus {
         });
         p.surface_type.set(surface_type);
         p.status.set(status);
-        p.extra.set("");
+        p.extra.set(extra);
         p
     }
 }
@@ -366,7 +373,7 @@ mod tests {
 
     #[test]
     fn a_surface_status_is_what_mackie_builds() {
-        let p = MixerParamSurfaceStatus::new("TuneSync", "ON", 0xFF00);
+        let p = MixerParamSurfaceStatus::new("TuneSync", "ON", 0xFF00, "");
         let base = &*p as *const MixerParamSurfaceStatus as *const u8;
         // SAFETY: reading the header bytes of the boxed struct.
         let head = unsafe { std::slice::from_raw_parts(base, 0x35) };
@@ -380,7 +387,8 @@ mod tests {
         assert_eq!(({ ty.end } as usize) - ({ ty.begin } as usize), 8, "end at the NUL");
         assert_eq!(({ st.cap }, { ty.cap }), (0xF, 0x3FF));
         assert_eq!(({ p.f44d }, { p.color }), (u32::MAX, 0xFF00));
-        assert_eq!(MixerParamSurfaceStatus::new("TuneSync", "a status far too long", 0).status.text().len(), 15, "truncated, NUL kept");
+        assert_eq!(MixerParamSurfaceStatus::new("TuneSync", "a status far too long", 0, "").status.text().len(), 15, "truncated, NUL kept");
+        assert_eq!(MixerParamSurfaceStatus::new("TuneSync", "ON", 0, r"C:\M\tunesync-surface.png").extra.text(), r"C:\M\tunesync-surface.png");
     }
 
     #[test]

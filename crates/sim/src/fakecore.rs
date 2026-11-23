@@ -42,8 +42,8 @@ static GETS: AtomicU64 = AtomicU64::new(0);
 static SETS: AtomicU64 = AtomicU64::new(0);
 static TOUCHES: AtomicU64 = AtomicU64::new(0);
 static RELEASES: AtomicU64 = AtomicU64::new(0);
-/// The last SurfaceStatus a driver sent: (surface type, status, colour).
-static STATUS: Mutex<(String, String, u32)> = Mutex::new((String::new(), String::new(), 0));
+/// The last SurfaceStatus a driver sent: (surface type, status, colour, picture).
+static STATUS: Mutex<(String, String, u32, String)> = Mutex::new((String::new(), String::new(), 0, String::new()));
 
 fn model() -> std::sync::MutexGuard<'static, BTreeMap<Key, BTreeMap<u32, f64>>> {
     MODEL.lock().unwrap_or_else(|e| e.into_inner())
@@ -171,16 +171,16 @@ pub unsafe extern "C" fn SetMixerParamWrapper(_: *mut c_void, p: *mut c_void) ->
         return -1;
     }
     let status: String = s.status.text().chars().take(12).collect(); // LV1 keeps 12
-    *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = (ty, status, s.color as u32);
+    *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = (ty, status, s.color as u32, s.extra.text());
     0
 }
 
-/// The last SurfaceStatus: the status text into `buf` (NUL-terminated), the colour returned;
-/// `ty` gets the surface type. 0 and "" before any.
+/// The last SurfaceStatus: the surface type, status text and picture into the buffers
+/// (`len` bytes each, NUL-terminated), the colour returned. 0 and "" before any.
 #[no_mangle]
-pub unsafe extern "C" fn fakecore_status(ty: *mut u8, status: *mut u8, len: usize) -> u32 {
+pub unsafe extern "C" fn fakecore_status(ty: *mut u8, status: *mut u8, picture: *mut u8, len: usize) -> u32 {
     let st = STATUS.lock().unwrap_or_else(|e| e.into_inner());
-    for (dst, src) in [(ty, &st.0), (status, &st.1)] {
+    for (dst, src) in [(ty, &st.0), (status, &st.1), (picture, &st.3)] {
         if !dst.is_null() && len > 0 {
             let n = src.len().min(len - 1);
             std::ptr::copy_nonoverlapping(src.as_ptr(), dst, n);

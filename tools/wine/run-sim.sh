@@ -6,7 +6,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUN=$(mktemp -d); trap 'rm -rf "$RUN"' EXIT
-cp "$ROOT"/dist/{lv1sim.exe,MixerCoreSG.dll,TuneSync_Control.dll} "$RUN/"
+cp "$ROOT"/dist/{lv1sim.exe,MixerCoreSG.dll,TuneSync_Control.dll,tunesync-surface.png,tunesync-surface@2x.png} "$RUN/"
 # Wine 8 has no bcryptprimitives.dll (ProcessPrng): a stub beside the exe, for this run only.
 # (Relative paths: clang-cl reads "/w..." as its own /w flag.)
 docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/tools/wine":/src/wine -v "$RUN":/src/out -w /src tunesync-build:1 bash -c \

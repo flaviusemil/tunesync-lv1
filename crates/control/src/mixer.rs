@@ -22,6 +22,8 @@ pub const SETTLE: Duration = Duration::from_millis(400);
 
 pub struct Lv1Mixer {
     pub lv1: Arc<Lv1>,
+    /// The tile picture's path ([`crate::picture`]), "" for LV1's own.
+    pub picture: String,
 }
 
 fn plugin_control(ctl_type: u32, tt: u32, ti: u32, slot: u32, channel: i32, cid: i32) -> MixerControl {
@@ -97,7 +99,7 @@ impl Mixer for Lv1Mixer {
     fn show_connected(&mut self, connected: bool) -> bool {
         // Mackie's words and colours: green "ON", red "N/A".
         let (text, color) = if connected { ("ON", 0x00FF00) } else { ("N/A", 0xFF0000) };
-        matches!(self.lv1.set_surface_status(crate::SURFACE_TYPE, text, color), Ok(0))
+        matches!(self.lv1.set_surface_status(crate::SURFACE_TYPE, text, color, &self.picture), Ok(0))
     }
 
     fn track_name(&mut self, tt: u32, ti: u32) -> String {

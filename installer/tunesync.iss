@@ -75,6 +75,10 @@ Name: "{commonappdata}\TuneSync"; Permissions: users-modify
 
 [Files]
 Source: "{#Dist}\TuneSync_Control.dll"; DestDir: "{code:ModulesDir}"; Flags: ignoreversion
+; The picture LV1 shows on TuneSync's tile (Setup > System Inventory > CONTROLS): the DLL
+; sends this path when the file is beside it, and Qt takes the @2x on a HiDPI screen.
+Source: "..\assets\lv1-surface\tunesync-surface.png"; DestDir: "{code:ModulesDir}"; Flags: ignoreversion
+Source: "..\assets\lv1-surface\tunesync-surface@2x.png"; DestDir: "{code:ModulesDir}"; Flags: ignoreversion
 Source: "{#Dist}\BUILD.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "lv1-prefs.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\logo\tunesync.ico"; DestDir: "{app}"; Flags: ignoreversion
@@ -88,6 +92,8 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 
 [UninstallDelete]
 Type: files; Name: "{code:ModulesDir}\TuneSync_Control.dll"
+Type: files; Name: "{code:ModulesDir}\tunesync-surface.png"
+Type: files; Name: "{code:ModulesDir}\tunesync-surface@2x.png"
 
 [Code]
 function ModulesDir(Param: String): String;
