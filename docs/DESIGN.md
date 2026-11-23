@@ -303,6 +303,7 @@ Ch 1-3 (slot 2):
 | Settings window | opens from Setup -> Control Surfaces (LV1 lists it under Controls), Direct2D text crisp at 175 %, live Tunes list with Rcv/Lock |
 | Surface re-created | loading another session destroyed and re-created the surface: stop + start in 32 ms, UDP 5004 re-bound |
 | Control Surfaces status (0.1.9, 2026-11-24) | LV1 lists TuneSync as "ON" in green with the iPad connected over RTP-MIDI; LV1 took every SurfaceStatus param (no refusal logged) |
+| Tile picture (0.1.10, 2026-11-24) | Setup > System Inventory > CONTROLS shows TuneSync's own picture instead of LV1's "Control WSG" one (Windows, 175 %) |
 
 **A Mac over the network (2026-11-23, macOS 12.7.6, Audio MIDI Setup's network session, both
 on Wi-Fi, RTT 2-8 ms):** the Mac listed "TuneSync" under Directory (DNS-SD advertising works)
