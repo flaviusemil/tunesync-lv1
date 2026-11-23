@@ -167,7 +167,7 @@ struct Gfx {
 struct State {
     rt: Arc<Runtime>,
     problem: Problem,
-    local_ips: Vec<String>,
+    local_ips: crate::model::LocalIps,
     view: View,
     model: Model,
     frame: Frame,
@@ -201,7 +201,8 @@ impl State {
         (self.dip(r.right - r.left).max(1.0), self.dip(r.bottom - r.top).max(1.0))
     }
     fn refresh(&mut self) -> bool {
-        let m = crate::model::build(&self.rt, (self.problem)(), &self.local_ips);
+        let ips = self.local_ips.get(&self.rt).to_vec();
+        let m = crate::model::build(&self.rt, (self.problem)(), &ips);
         let changed = m != self.model;
         self.model = m;
         changed
@@ -717,7 +718,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
         SendMessageW(edit, 0x00C5 /* EM_LIMITTEXT */, WPARAM(63), LPARAM(0));
 
         let st = Box::new(State {
-            local_ips: crate::model::local_ips(),
+            local_ips: crate::model::LocalIps::default(),
             view: View::new(),
             model: Model::default(),
             frame: Frame::default(),

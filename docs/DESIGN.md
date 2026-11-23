@@ -219,6 +219,12 @@ The window is about 480 px wide. From top to bottom:
   - **Advertise:** while RTP is on, register `_apple-midi._udp` under the session name and
     port. "TuneSync" then appears in the Mac's Audio MIDI Setup → MIDI Network Setup →
     Directory by itself, and the Mac connects with one click.
+  - **By hand:** the sheet lists this PC's IPv4 addresses, one line each with its adapter's
+    name and the port ("192.0.2.172 (WiFi), port 5004"), the one a connected peer is reached
+    through first; loopback and 169.254 link-local addresses are left out. The list comes
+    from the adapters themselves (GetAdaptersAddresses) and is read again every 5 s. Up to
+    0.1.7 it was the address the routing table picked for 10/8, which on the rig was the
+    SoundGrid port, not the WiFi the iPad was on.
   - **Browse:** list the Macs' own network sessions under "Found on the network", each with
     a Connect button. TuneSync then invites the Mac as the initiator, so the Mac only needs
     its session enabled. Connections made this way are remembered and re-invited when the Mac

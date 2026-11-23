@@ -769,12 +769,16 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
                 rows.button_in(br, Rect::new(cw - 112.0, y, 112.0, OPT_H), "Connect", h, true);
                 y += OPT_H + ROW_GAP;
             }
-            let ips = if m.local_ips.is_empty() { "this PC's address".to_string() } else { m.local_ips.join(" or ") };
-            for line in [
+            // one line per address: a PC on the SoundGrid network and WiFi has two
+            let mut lines = vec![
                 format!("Macs list \"{}\" by themselves in Audio MIDI Setup →", s.rtp_name),
                 "MIDI Network Setup → Directory. Or add it there by hand:".to_string(),
-                format!("{ips}, port {}.", s.rtp_port),
-            ] {
+            ];
+            if m.local_ips.is_empty() {
+                lines.push(format!("this PC's address, port {}", s.rtp_port));
+            }
+            lines.extend(m.local_ips.iter().map(|ip| format!("{ip}, port {}", s.rtp_port)));
+            for line in lines {
                 rows.text(Rect::new(0.0, y, cw, 20.0), &line, 12.5, 400, DIM, Align::Left);
                 y += 20.0;
             }

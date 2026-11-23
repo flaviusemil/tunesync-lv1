@@ -40,7 +40,7 @@ pub fn sample() -> Model {
             line("21:04:12", Level::Ok, "A Natural Minor: set 2 (Ch 43 Vox 1 -> A, Ch 44 Vox 2 -> A), skipped 1 locked (Ch 45 BV)"),
         ],
         lv1_problem: None,
-        local_ips: vec!["192.0.2.172".into()],
+        local_ips: vec!["192.0.2.172 (WiFi)".into(), "198.51.100.16 (WSG Port)".into()],
     }
 }
 

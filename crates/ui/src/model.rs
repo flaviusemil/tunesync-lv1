@@ -26,7 +26,8 @@ pub struct Model {
     pub log: Vec<LogLine>,
     /// Set when LV1 stopped answering (TuneSync is passive until LV1 restarts).
     pub lv1_problem: Option<String>,
-    /// This computer's IPv4 addresses, for typing on a Mac.
+    /// This computer's IPv4 addresses for typing on a Mac, "192.0.2.172 (WiFi)", the one a
+    /// connected peer uses first.
     pub local_ips: Vec<String>,
 }
 
