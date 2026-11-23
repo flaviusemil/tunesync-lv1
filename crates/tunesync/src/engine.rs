@@ -7,6 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::apply::{apply, default_ranges, discover, Mixer, TrackRange, TuneInstance};
+use crate::clock::{Clock, ClockFollower};
 use crate::log::{Level, LogRing};
 use crate::midi_map::{bpm_text, interpret, tempo_bpm, Coalescer, Intent, MsgKind, TEMPO_CC};
 use crate::settings::Settings;
@@ -54,8 +55,7 @@ struct State {
     tunes: Vec<TuneInstance>,
     /// A tempo asked for and not yet set, with who asked; the last one wins.
     tempo: Option<(f64, String)>,
-    /// LV1's tempo was logged (once, on the first tick).
-    tempo_logged: bool,
+    clock: ClockFollower,
 }
 
 impl State {
@@ -108,7 +108,7 @@ impl Engine {
                 status: Status::default(),
                 tunes: Vec::new(),
                 tempo: None,
-                tempo_logged: false,
+                clock: ClockFollower::default(),
             }),
         }
     }
@@ -142,6 +142,25 @@ impl Engine {
 
     /// One whole MIDI message from `source` ("MIDI <port>" / "RTP <peer>").
     pub fn on_midi(&self, source: &str, msg: &[u8], now_ms: u64) {
+        self.on_midi_at(source, msg, now_ms * 1000, None);
+    }
+
+    /// [`Engine::on_midi`] with the time in microseconds, and when the sender stamped the
+    /// message on its own clock if it did (RTP-MIDI): MIDI clock is timed on it.
+    pub fn on_midi_at(&self, source: &str, msg: &[u8], now_us: u64, sent_us: Option<u64>) {
+        if let Some(c) = msg.first().and_then(|&b| Clock::from_status(b)) {
+            let mut st = self.lock();
+            if let Some(bpm) = st.clock.on(source, c, sent_us, now_us) {
+                st.tempo = Some((bpm, format!("{source} clock")));
+                drop(st);
+                self.wake();
+            }
+            return;
+        }
+        self.on_message(source, msg, now_us / 1000);
+    }
+
+    fn on_message(&self, source: &str, msg: &[u8], now_ms: u64) {
         let (line, level, due);
         {
             let mut st = self.lock();
@@ -209,7 +228,7 @@ impl Engine {
         let mut change = Intent::default();
         let mut source = String::new();
         let mut ignored_line = None;
-        let (scan, fallback, tempo, log_tempo) = {
+        let (scan, fallback, tempo) = {
             let mut st = self.lock();
             if st.pending.due_in(now_ms) == Some(0) {
                 change = st.pending.take();
@@ -228,15 +247,10 @@ impl Engine {
                 st.ignored = 0;
                 st.last_ignored_log = Some(now_ms);
             }
-            (std::mem::take(&mut st.scan_wanted), st.settings.spelling, st.tempo.take(), !std::mem::replace(&mut st.tempo_logged, true))
+            (std::mem::take(&mut st.scan_wanted), st.settings.spelling, st.tempo.take())
         };
         if let Some(l) = ignored_line.take() {
             self.log.add(Level::Info, l);
-        }
-        if log_tempo {
-            if let Some(t) = mixer.tempo() {
-                self.log.add(Level::Info, format!("LV1 tempo: {} BPM", bpm_text(t)));
-            }
         }
         if let Some((bpm, from)) = tempo {
             self.set_tempo(mixer, bpm, &from);

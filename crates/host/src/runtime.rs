@@ -21,7 +21,7 @@ use tunesync::tune::Spelling;
 use crate::filelog::FileLog;
 use crate::midi::{split_midi, MidiIn};
 use crate::rtp::{RtpService, RtpView};
-use crate::sys::{clock_text, now_ms, Worker};
+use crate::sys::{clock_text, now_ms, now_us, Worker};
 
 pub struct RuntimeConfig {
     /// Where settings.ini and tunesync.log live.
@@ -99,7 +99,7 @@ impl Runtime {
         let (e2, l2) = (engine.clone(), log.clone());
         let midi = cfg
             .local_midi
-            .then(|| MidiIn::start(Box::new(move |port, m| e2.on_midi(&format!("MIDI {port}"), m, now_ms())), Box::new(move |l| l2.add(Level::Info, l))));
+            .then(|| MidiIn::start(Box::new(move |port, m| e2.on_midi_at(&format!("MIDI {port}"), m, now_us(), None)), Box::new(move |l| l2.add(Level::Info, l))));
         let (l3, f3, e3) = (log.clone(), file.clone(), engine.clone());
         let rtp = cfg.rtp.then(|| {
             RtpService::start(
@@ -110,7 +110,7 @@ impl Runtime {
                         l3.add(Level::Info, l);
                     }
                 }),
-                Arc::new(move |src: &str, m: &[u8]| e3.on_midi(src, m, now_ms())),
+                Arc::new(move |src: &str, m: &[u8], sent_us: u64| e3.on_midi_at(src, m, now_us(), Some(sent_us))),
             )
         });
         if !cfg.local_midi || !cfg.rtp {
@@ -227,7 +227,7 @@ impl Runtime {
     /// last-change banner ("Headlink MIDI").
     pub fn feed_midi(&self, source: &str, bytes: &[u8]) {
         for m in split_midi(bytes) {
-            self.engine.on_midi(source, &m, now_ms());
+            self.engine.on_midi_at(source, &m, now_us(), None);
         }
     }
 

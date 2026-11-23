@@ -12,7 +12,8 @@ use crate::dnssd::{Dnssd, FoundSession};
 use crate::sys::{now_10k, now_ms, Worker};
 
 pub type LogFn = Arc<dyn Fn(&str, bool) + Send + Sync>;
-pub type MidiFn = Arc<dyn Fn(&str, &[u8]) + Send + Sync>;
+/// (source, one whole message, when the sender stamped it in us on its own clock)
+pub type MidiFn = Arc<dyn Fn(&str, &[u8], u64) + Send + Sync>;
 
 /// What the window shows of RTP-MIDI.
 #[derive(Clone, Debug, Default)]
@@ -67,9 +68,9 @@ impl RtpService {
         session.on_log(move |l, detail| l2(l, detail));
         let last = Arc::new(AtomicU64::new(0));
         let last2 = last.clone();
-        session.on_midi(move |p, m| {
+        session.on_midi(move |p, m, sent_us| {
             last2.store(now_ms(), Ordering::Relaxed);
-            midi(&format!("RTP {}", p.display()), m);
+            midi(&format!("RTP {}", p.display()), m, sent_us);
         });
         let sh = Arc::new(Shared {
             run: AtomicBool::new(true),

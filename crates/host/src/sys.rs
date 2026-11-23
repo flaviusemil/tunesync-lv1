@@ -13,6 +13,11 @@ pub fn now_ms() -> u64 {
     T0.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
 }
 
+/// The same clock in microseconds (`now_us() / 1000` is `now_ms()`), for timing MIDI clock.
+pub fn now_us() -> u64 {
+    T0.get_or_init(Instant::now).elapsed().as_micros() as u64 + 1000
+}
+
 /// The same clock in 100 us units, for the RTP-MIDI session: its times in milliseconds
 /// (`now_10k() / 10`) are then `now_ms()` times, so the window can animate on them.
 pub fn now_10k() -> u64 {

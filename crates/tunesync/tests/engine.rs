@@ -317,15 +317,15 @@ fn tempo_by_cc() {
     let e = Engine::new(log.clone());
     e.configure(&Settings::default());
     assert_eq!(e.tick(&mut m, 100), None);
-    assert_eq!(log.snapshot()[0].text, "LV1 tempo: 120 BPM", "logged once at start");
+    assert!(log.snapshot().is_empty(), "LV1's tempo at load is its default, not the session's: not logged");
 
     e.on_midi("RTP iPad", &cc(16, 21, 68), 1000);
     assert_eq!(e.tick(&mut m, 1000), None, "set at once: nothing pending");
     assert_eq!(m.tempo, Some(128.0));
     assert_eq!(m.sets, 0, "no Tune touched");
     let l = log.snapshot();
-    assert_eq!(l[1].text, "RTP iPad CC 21 = 68 (128 BPM) ch 16");
-    assert_eq!((l[2].level, l[2].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP iPad)"));
+    assert_eq!(l[0].text, "RTP iPad CC 21 = 68 (128 BPM) ch 16");
+    assert_eq!((l[1].level, l[1].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP iPad)"));
     assert_eq!(e.status().changes, 0, "the Tunes banner is not a tempo's");
 
     // a key cue with a tempo: both, one Tune pass
@@ -347,13 +347,51 @@ fn tempo_by_cc() {
 }
 
 #[test]
-fn no_tempo_line_without_one() {
+fn a_refused_tempo_says_so() {
     let mut m = FakeMixer::default();
     let log = Arc::new(LogRing::default());
     let e = Engine::new(log.clone());
-    e.tick(&mut m, 100);
-    assert!(log.snapshot().is_empty(), "an LV1 that can't say its tempo adds nothing");
     e.on_midi("MIDI A", &cc(16, 21, 60), 200);
     e.tick(&mut m, 200);
     assert!(log.snapshot().last().unwrap().text.contains("refused the call, reads nothing"));
+}
+
+/// MIDI clock from the playback rig sets LV1's tempo once it settles (timed on the sender's
+/// stamps), quietly: no MIDI line per tick, no Tune pass; a CC holds until the clock moves.
+#[test]
+fn tempo_follows_midi_clock() {
+    let mut m = FakeMixer { tempo: Some(120.0), ..Default::default() };
+    m.tune(0, 42, 0, 10, 1, true);
+    let log = Arc::new(LogRing::default());
+    let e = Engine::new(log.clone());
+    e.configure(&Settings::default());
+    let clock = |e: &Engine, m: &mut FakeMixer, bpm: f64, beats: usize, t0: u64| -> u64 {
+        let tick = 60e6 / (bpm * 24.0);
+        let mut t = t0;
+        for i in 0..beats * 24 {
+            t = t0 + (i as f64 * tick) as u64;
+            let late = (i as u64 * 7919) % 25_000; // Wi-Fi
+            e.on_midi_at("RTP Mac", &[0xF8], t + late, Some(t));
+            e.tick(m, (t + late) / 1000);
+        }
+        t
+    };
+    e.on_midi_at("RTP Mac", &[0xFA], 1_000_000, Some(1_000_000));
+    let t = clock(&e, &mut m, 128.0, 8, 1_000_000);
+    assert_eq!(m.tempo, Some(128.0));
+    let l = log.snapshot();
+    assert_eq!(l.len(), 1, "one line, not one per tick: {l:?}");
+    assert_eq!((l[0].level, l[0].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP Mac clock)"));
+    assert_eq!((m.sets, e.status().last_midi_ms), (0, 0), "no Tune touched; clock is not a cue");
+
+    // a CC tempo holds while the clock keeps its tempo...
+    e.on_midi("RTP Mac", &cc(16, 21, 64), t / 1000);
+    e.tick(&mut m, t / 1000);
+    assert_eq!(m.tempo, Some(124.0));
+    let t = clock(&e, &mut m, 128.0, 8, t + 19_531);
+    assert_eq!(m.tempo, Some(124.0), "the clock did not change: the CC holds");
+    // ...until the clock's tempo changes
+    clock(&e, &mut m, 140.0, 8, t + 17_857);
+    assert_eq!(m.tempo, Some(140.0));
+    assert!(log.snapshot().last().unwrap().text.ends_with("(RTP Mac clock)"));
 }

@@ -4,14 +4,15 @@
 //! ```text
 //!   Note On (velocity > 0) on the channel   key = the note's pitch class
 //!   CC <scale_cc> on the channel, 0..10     scale = that Tune scale number
-//!   CC 21 on the channel, 0..127            LV1's tempo = 60 + value BPM (provisional)
+//!   CC 21 on the channel, 0..127            LV1's tempo = 60 + value BPM
+//!   MIDI clock (any channel, any source)    LV1's tempo follows it (crate::clock)
 //!   anything else                           ignored (Note Off, other channels, ...)
 //! ```
 use crate::tune::{pitch_class_name, scale_name, NUM_SCALES};
 
-/// The CC that sets LV1's tempo, on the configured channel. Provisional, for the first rig
-/// test (2026-11-23): which MIDI carries the tempo (MIDI clock, or an exact value) is still
-/// Flavius' call. A `scale_cc` set to the same number wins.
+/// The CC that sets LV1's tempo exactly, on the configured channel: one message per song,
+/// like the key. MIDI clock is followed as well ([`crate::clock`]); this overrides it until
+/// the clock's tempo changes. A `scale_cc` set to the same number wins.
 pub const TEMPO_CC: u8 = 21;
 /// [`TEMPO_CC`]'s value 0..127 is 60..187 BPM.
 pub const TEMPO_BASE_BPM: u8 = 60;

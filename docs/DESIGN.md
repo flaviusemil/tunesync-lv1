@@ -1,7 +1,7 @@
 # TuneSync: design
 
 TuneSync is an eMotion LV1 control module that sets the key and scale of every Waves Tune
-Real-Time instance from MIDI. It is its own product with its own DLL, settings and installer.
+Real-Time instance from MIDI, and LV1's system tempo from MIDI clock or a CC. It is its own product with its own DLL, settings and installer.
 It is not part of Headlink and does not need Headlink installed. It is open source.
 
 ## Why
@@ -17,16 +17,19 @@ lives with the song in the tracks session, so reordering the set can't put Tune 
   settings window that also shows a log.
 - Honour Tune's own **Receive / Lock** button: a Locked instance is never changed.
 - Keep the spelling the engineer chose (Db stays a flat key; C# stays a sharp key).
+- LV1's system tempo follows the tracks rig: its MIDI clock, or an exact CC (added
+  2026-11-23, Flavius: "TuneSync sounds like it could relate").
 
 **Non-goals (v1)**
 - Following MIDI timecode, song lists or program-change presets on the LV1 side. The tracks
   session holds the key.
-- Any other plug-in or parameter.
+- Any other plug-in or parameter. (LV1's tempo is a mixer setting, not a plug-in parameter:
+  setting it once moves every tempo-synced plug-in, so TuneSync never touches them itself.)
 - macOS in the first release. Windows comes first; LV1's surface-driver ABI is the same on Mac,
   and a Mac version follows (Flavius, 2026-11-22: "This should work with mac too").
 
 **Anti-goals** (failures even if everything else works)
-- Touching anything except a Tune's key and scale.
+- Touching anything except a Tune's key and scale, and LV1's system tempo.
 - Blocking or stalling LV1: no LV1 thread ever waits on MIDI, the network or our window.
 - Guessing. If a Tune's parameters don't look the way we expect (a Tune update could reorder
   them), skip that instance and say so in the log.
@@ -71,6 +74,8 @@ value and text.
 |---|---|
 | Note On, velocity > 0 | Key = the note's pitch class. Octave and velocity are ignored. |
 | CC *n* (the scale CC), value 0..10 | Scale = that Tune scale number. Values above 10 are ignored and logged. |
+| CC 21, value 0..127 | LV1's tempo = 60 + value BPM. A scale CC set to 21 wins. |
+| MIDI clock (F8, FA, FB, FC), any channel | LV1's tempo follows it: see **Tempo** below. |
 | Anything else | Ignored, including Note Off and messages on other channels. |
 
 A note without a CC changes only the key. The Note Off that ends a cue's note is part of the
@@ -104,6 +109,36 @@ skipped 1 locked (Ch 45)`.
 
 Tune's own Send to All is deliberately not used. Setting each instance directly lets us check
 Lock ourselves and report exactly what changed.
+
+**Tempo.** LV1 has one system tempo (Top Bar BPM, Setup > Mixer Settings > Tempo; scenes store
+it). Tempo-based Waves plug-ins are in "tempo listen" by default and follow it. TuneSync sets
+it with `SetMixerParam` of mixer param **4019** (`MixerSettingTempo`), a `WSMixerParamDouble`:
+the 0x35-byte param header and the BPM at +0x35. LV1's own MyMon driver sets the tempo the same
+way and refuses anything under 40 BPM. The id was decoded from MixerCoreSG 17.3.50's
+`ToString(WEMixerParamType)`, the same table that gives the meter ids proven on the rig.
+After setting, TuneSync reads the tempo back and logs `Tempo 128 BPM (was 127) (RTP Mac
+clock)`, or a warning if LV1 did not take it. A tempo is applied by itself: no Tune scan.
+
+MIDI clock (`crate::clock`):
+- One source at a time. The first that ticks is followed until it has been quiet for 1 s, so a
+  main and a backup rig both sending clock never count as one clock at double speed.
+- Every half beat, the tick period is the least-squares slope over the last two beats (48
+  ticks). Over RTP-MIDI it is timed on the sender's own stamps (the packet's RTP timestamp plus
+  delta times, unwrapped per peer). A sender whose stamps disagree with arrival by more than
+  20 % is timed on arrival instead.
+- It is reported when two estimates in a row agree within 0.5 BPM, and only if it is new: the
+  first since the clock started (Start, or ticks after a 1 s gap), or 0.5 BPM or more from the
+  last one reported. Whole BPM when within 0.1 of one, else to 0.1. Jitter never nudges LV1,
+  and a tempo set another way (CC 21, a hand on LV1) holds until the clock's tempo changes.
+- Stop is ignored (many rigs keep ticking while stopped). Continue measures afresh. Outside
+  40-300 BPM nothing is reported. Clock is never logged per tick and does not count as a cue.
+
+LV1's own MIDI control-surface driver has an undocumented `SyncToMIDITempo` option; a Waves
+forum user reported it drifting 4-5 BPM. TuneSync's follower is separate and does not use it.
+
+Proven on the rig 2026-11-23 (0.1.6 test, CC 21 only): `CC 21 = 68` -> `[ok] Tempo 128 BPM
+(was 127)`, read back 28 ms after the CC. TuneSync only logs the tempo it sets: LV1's tempo
+when TuneSync loads is its default 120, because the session's tempo loads later.
 
 ## Settings window
 

@@ -135,8 +135,9 @@ impl Default for SessionConfig {
 
 /// `detail` = packet-level noise, for the file log only.
 pub type LogFn = Box<dyn Fn(&str, bool) + Send + Sync>;
-/// One whole MIDI message (running status expanded) from a connected peer.
-pub type MidiFn = Box<dyn Fn(&PeerView, &[u8]) + Send + Sync>;
+/// One whole MIDI message (running status expanded) from a connected peer, and when the
+/// sender stamped it (us, the sender's session clock; see [`Session::on_midi`]).
+pub type MidiFn = Box<dyn Fn(&PeerView, &[u8], u64) + Send + Sync>;
 
 const SEC: u64 = 10000; // the session clock counts 100 us units
 
@@ -154,6 +155,8 @@ struct Peer {
     have_seq: bool,
     seq_in: u16,
     cycles: u32,
+    /// The last RTP timestamp in and its 64-bit extension (wraps and reordering absorbed).
+    ts_in: Option<(u32, u64)>,
     fed: u32,
     next_rs: u64,
     gone: bool,
@@ -163,6 +166,17 @@ struct Peer {
 }
 
 impl Peer {
+    /// A packet's 32-bit RTP timestamp (100 us units) as a 64-bit one: it wraps after
+    /// ~5 days, and a reordered packet must not look 5 days late.
+    fn extend_ts(&mut self, ts: u32) -> u64 {
+        let ext = match self.ts_in {
+            None => (1u64 << 32) + u64::from(ts),
+            Some((last, ext)) => ext.wrapping_add_signed(i64::from(ts.wrapping_sub(last) as i32)),
+        };
+        self.ts_in = Some((ts, ext));
+        ext
+    }
+
     fn new(ip: &str) -> Peer {
         Peer {
             v: PeerView {
@@ -191,6 +205,7 @@ impl Peer {
             ck_sent: 0,
             ck_missed: 0,
             have_seq: false,
+            ts_in: None,
             seq_in: 0,
             cycles: 0,
             fed: 0,
@@ -274,7 +289,7 @@ struct Inner {
 #[derive(Default)]
 struct Out {
     logs: Vec<(String, bool)>,
-    midi: Vec<(PeerView, Vec<u8>)>,
+    midi: Vec<(PeerView, Vec<u8>, u64)>,
     sends: Vec<(bool, String, u16, Vec<u8>)>, // (data socket?, ip, port, bytes)
 }
 
@@ -379,6 +394,7 @@ impl Inner {
         p.tries = 0;
         p.v.ssrc = 0;
         p.have_seq = false;
+        p.ts_in = None;
         p.cycles = 0;
         p.fed = 0;
         p.ck_sent = 0;
@@ -413,8 +429,11 @@ impl Session {
     pub fn on_log(&mut self, f: impl Fn(&str, bool) + Send + Sync + 'static) {
         self.log = Some(Box::new(f));
     }
-    /// Before open().
-    pub fn on_midi(&mut self, f: impl Fn(&PeerView, &[u8]) + Send + Sync + 'static) {
+    /// Before open(). Each message comes with when the sender stamped it, in microseconds
+    /// on the sender's session clock (the packet's RTP timestamp plus the message's delta
+    /// time, 100 us units): MIDI clock can be timed on the sender's clock, free of network
+    /// jitter.
+    pub fn on_midi(&mut self, f: impl Fn(&PeerView, &[u8], u64) + Send + Sync + 'static) {
         self.midi = Some(Box::new(f));
     }
 
@@ -502,8 +521,8 @@ impl Session {
             }
         }
         if let Some(m) = &self.midi {
-            for (p, msg) in &out.midi {
-                m(p, msg);
+            for (p, msg, sent_us) in &out.midi {
+                m(p, msg, *sent_us);
             }
         }
     }
@@ -690,6 +709,7 @@ impl Session {
                 p.v.ctl_port = port;
                 p.v.data_port = port.wrapping_add(1);
                 p.have_seq = false;
+                p.ts_in = None;
                 p.cycles = 0;
                 p.fed = 0;
                 p.accept_by = now + accept_ms * 10;
@@ -823,8 +843,10 @@ impl Session {
             return; // a journal-only packet
         }
         peer.v.last_midi_ms = now / 10;
+        let mut t = peer.extend_ts(m.ts);
         for e in m.events {
-            out.midi.push((peer.v.clone(), e.bytes));
+            t += u64::from(e.delta); // each delta counts from the command before it
+            out.midi.push((peer.v.clone(), e.bytes, t * 100));
         }
     }
 

@@ -265,12 +265,16 @@ impl FakeInitiator {
         self.data.send(sp + 1, &r);
     }
     fn midi(&mut self, sp: u16, msg: &[u8]) {
+        self.midi_at(sp, 4242, msg);
+    }
+    /// `list`: the command list as on the wire (deltas included), at RTP timestamp `ts`.
+    fn midi_at(&mut self, sp: u16, ts: u32, list: &[u8]) {
         let mut r = vec![0x80, 0x61];
         r.extend_from_slice(&self.seq.to_be_bytes());
-        r.extend_from_slice(&4242u32.to_be_bytes());
+        r.extend_from_slice(&ts.to_be_bytes());
         r.extend_from_slice(&self.ssrc.to_be_bytes());
-        r.push(0x40 | msg.len() as u8); // J: a journal follows, as macOS sends on every packet
-        r.extend_from_slice(msg);
+        r.push(0x40 | list.len() as u8); // J: a journal follows, as macOS sends on every packet
+        r.extend_from_slice(list);
         r.extend_from_slice(&[0x20, 0x00, 0x04]);
         self.data.send(sp + 1, &r);
         self.seq += 1;
@@ -383,7 +387,7 @@ fn session_with(clock: Option<Arc<AtomicU64>>) -> (Session, Got, Log, SessionCon
     let log: Log = Arc::default();
     let mut s = Session::new();
     let g2 = got.clone();
-    s.on_midi(move |p, m| g2.lock().unwrap().push((p.display(), m.to_vec())));
+    s.on_midi(move |p, m, _| g2.lock().unwrap().push((p.display(), m.to_vec())));
     let l2 = log.clone();
     s.on_log(move |l, _| l2.lock().unwrap().push(l.to_string()));
     let mut c = SessionConfig { port: free_pair(), ..Default::default() };
@@ -692,4 +696,42 @@ fn a_mac_connects_over_ipv6() {
     let g = got.lock().unwrap().clone();
     assert!(g.contains(&("Studio-Mac".to_string(), vec![0x9F, 62, 100])), "MIDI over IPv6 delivered: {g:?}");
     assert!(g.contains(&("Playback-Main".to_string(), vec![0xBF, 20, 4])), "MIDI over IPv4 delivered: {g:?}");
+}
+
+/// Each message carries when its sender stamped it: the RTP timestamp plus the delta times
+/// before it, in us, unwrapped across the 32-bit wrap and not thrown by a reordered packet.
+#[test]
+fn the_sender_time_rides_with_each_message() {
+    type Timed = Arc<Mutex<Vec<(Vec<u8>, u64)>>>;
+    let times: Timed = Arc::default();
+    let mut s = Session::new();
+    let t2 = times.clone();
+    s.on_midi(move |_, m, sent_us| t2.lock().unwrap().push((m.to_vec(), sent_us)));
+    s.open(SessionConfig { port: free_pair(), ..Default::default() }).unwrap();
+    let sp = s.port();
+    let mut rig = FakeInitiator::new(0x33330003, 0xCCCC0003, "Clock-Rig");
+    rig.invite_ctl(sp);
+    assert!(until(1000, || {
+        s.poll(1);
+        rig.step();
+        rig.ok_ctl
+    }));
+    rig.invite_data(sp);
+    assert!(until(1000, || {
+        s.poll(1);
+        rig.step();
+        rig.ok_data
+    }));
+    rig.midi_at(sp, 0xFFFF_FFF0, &[0xF8]);
+    rig.midi_at(sp, 0x0000_0010, &[0xF8, 0x05, 0xF8]); // wrapped; the second 5 ticks later
+    rig.midi_at(sp, 0x0000_0008, &[0xF8]); // reordered: earlier than the one before
+    assert!(until(1000, || {
+        s.poll(1);
+        rig.step();
+        times.lock().unwrap().len() >= 4
+    }));
+    let t: Vec<u64> = times.lock().unwrap().iter().map(|(_, t)| *t).collect();
+    assert_eq!(t[1] - t[0], 0x20 * 100, "across the wrap");
+    assert_eq!(t[2] - t[1], 5 * 100, "the delta time");
+    assert_eq!(t[1] - t[3], 8 * 100, "a late packet is earlier, not 5 days later");
 }
