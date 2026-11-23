@@ -7,7 +7,7 @@
 //! the shell paints its items and feeds pointer events back to [`View`], which answers
 //! with [`Command`]s for the shell to carry out.
 use tunesync::log::Level;
-use tunesync::midi_map::Intent;
+use tunesync::midi_map::{Intent, TEMPO_CC, TEMPO_HIGH_CC};
 use tunesync::tune::{pitch_class_name, scale_name, Spelling, NUM_SCALES};
 
 use crate::draw::theme::*;
@@ -23,6 +23,8 @@ const TILE_H: f32 = 56.0;
 const ROW_H: f32 = 44.0;
 const ROW_GAP: f32 = 6.0;
 const OPT_H: f32 = 48.0;
+/// The Tempo tile beside the last-change banner.
+const TEMPO_W: f32 = 116.0;
 /// Status dots.
 const DOT_R: f32 = 4.5;
 /// A connected peer's dot breathes once in this time...
@@ -63,6 +65,8 @@ pub enum Sheet {
     Number(NumberField, String),
     Key,
     Scale,
+    /// LV1's tempo, and how the tracks set it.
+    Tempo,
     Log,
 }
 
@@ -73,6 +77,7 @@ pub enum Hit {
     RtpTile,
     ChannelTile,
     ScaleCcTile,
+    TempoTile,
     Spelling(Spelling),
     Rescan,
     KeyTile,
@@ -264,6 +269,7 @@ impl View {
             Hit::ScaleCcTile => self.open(Sheet::Number(NumberField::ScaleCc, String::new())),
             Hit::KeyTile => self.open(Sheet::Key),
             Hit::ScaleTile => self.open(Sheet::Scale),
+            Hit::TempoTile => self.open(Sheet::Tempo),
             Hit::FullLog => self.open(Sheet::Log),
             Hit::Spelling(sp) => {
                 if *sp != s.spelling {
@@ -498,8 +504,8 @@ pub fn layout(m: &Model, v: &View, w: f32, h: f32) -> Frame {
     }
     y += TILE_H + GAP;
 
-    // ---- the last change, or what is wrong
-    let banner = Rect::new(PAD, y, cw, 52.0);
+    // ---- the last change, or what is wrong; LV1's tempo beside it
+    let banner = Rect::new(PAD, y, cw - TEMPO_W - 10.0, 52.0);
     let (title, meta, accent) = match (&m.lv1_problem, &m.last) {
         (Some(p), _) => ("LV1 stopped answering".to_string(), p.clone(), WARN),
         (None, Some(l)) => (l.label.clone(), l.meta.clone(), if l.problem { WARN } else { ACC }),
@@ -509,6 +515,13 @@ pub fn layout(m: &Model, v: &View, w: f32, h: f32) -> Frame {
     b.bx(Rect::new(banner.x, banner.y, 3.0, banner.h), 1.5, accent, None);
     b.text(Rect::new(banner.x + 14.0, banner.y + 6.0, banner.w - 24.0, 22.0), &title, 16.0, 700, FG, Align::Left);
     b.text(Rect::new(banner.x + 14.0, banner.y + 28.0, banner.w - 24.0, 18.0), &meta, 12.5, 400, DIM, Align::Left);
+    let t = &m.tempo;
+    let (tempo, tempo_col) = if t.bpm.is_empty() {
+        ("—".to_string(), DIM)
+    } else {
+        (format!("{} BPM", t.bpm), if t.problem { WARN } else { FG })
+    };
+    b.tile(Rect::new(w - PAD - TEMPO_W, y, TEMPO_W, 52.0), "Tempo", &tempo, tempo_col, None, Hit::TempoTile);
     y += 52.0 + GAP;
 
     // ---- the Tunes: whatever height the bottom part leaves
@@ -800,6 +813,56 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
             y += order.len().div_ceil(2) as f32 * (OPT_H + ROW_GAP);
             grid_button(&mut rows, Rect::new(0.0, y, cw, OPT_H), "Keep each Tune's scale (key only)", v.pick_scale.is_none(), Hit::PickScale(None));
             y += OPT_H + 8.0;
+        }
+        Sheet::Tempo => {
+            title = "Tempo".into();
+            let t = &m.tempo;
+            let d = Rect::new(0.0, y, cw, 52.0);
+            rows.bx(d, 8.0, PANEL, Some(if t.problem { WARN } else { LINE }));
+            let big = if t.bpm.is_empty() { "—".to_string() } else { format!("{} BPM", t.bpm) };
+            rows.text(d, &big, 24.0, 700, if t.bpm.is_empty() { DIM } else { FG }, Align::Center);
+            y += 52.0 + 6.0;
+            let meta = if t.bpm.is_empty() {
+                "LV1's tempo can't be read".to_string()
+            } else if t.meta.is_empty() {
+                "LV1's own: TuneSync has not set it".to_string()
+            } else {
+                format!("Set {}", t.meta)
+            };
+            rows.text(Rect::new(0.0, y, cw, 22.0), &meta, 12.5, 400, if t.problem { WARN } else { DIM }, Align::Center);
+            y += 22.0 + 10.0;
+            let ch = if s.channel == 0 { "any channel".to_string() } else { format!("channel {}", s.channel) };
+            rows.label(Rect::new(0.0, y, cw, 26.0), &format!("From the tracks, {ch}"));
+            y += 26.0;
+            let cc_row = |cc: u8, what: &str, sub: &str| -> (String, String, bool) {
+                if cc == s.scale_cc {
+                    (format!("CC {cc}"), "is the Scale CC: no tempo".to_string(), true)
+                } else {
+                    (format!("CC {cc} {what}"), sub.to_string(), false)
+                }
+            };
+            let lines = [
+                cc_row(TEMPO_CC, "= 40 to 127", "that BPM · 56 → 56 BPM"),
+                cc_row(TEMPO_HIGH_CC, "= 0 to 127", "100 + value · 28 → 128 BPM"),
+                ("MIDI clock".to_string(), "followed while it plays".to_string(), false),
+            ];
+            for (left, right, warn) in lines {
+                let r = Rect::new(0.0, y, cw, ROW_H);
+                rows.bx(r, 8.0, PANEL, Some(LINE));
+                rows.text(Rect::new(12.0, y, 150.0, ROW_H), &left, 14.0, 400, FG, Align::Left);
+                rows.text(Rect::new(162.0, y, cw - 174.0, ROW_H), &right, 12.5, 400, if warn { WARN } else { DIM }, Align::Right);
+                y += ROW_H + ROW_GAP;
+            }
+            y += 4.0;
+            for line in [
+                format!("LV1's tempo starts at 40 BPM: CC {TEMPO_CC} under 40 is ignored."),
+                "A tempo CC holds until the clock's tempo changes.".to_string(),
+                "Tempo-based plug-ins (delays, LFOs) follow it by default.".to_string(),
+            ] {
+                rows.text(Rect::new(0.0, y, cw, 20.0), &line, 12.5, 400, DIM, Align::Left);
+                y += 20.0;
+            }
+            y += 8.0;
         }
         Sheet::Log => {
             title = "Log".into();

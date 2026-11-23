@@ -17,6 +17,7 @@ pub struct Model {
     pub rtp: RtpModel,
     /// The banner; None before the first change.
     pub last: Option<LastChange>,
+    pub tempo: TempoModel,
     pub tunes: Vec<TuneRow>,
     /// Oldest first, as the log ring holds them.
     pub log: Vec<LogLine>,
@@ -78,6 +79,17 @@ pub struct TuneRow {
     pub receive: bool,
     /// The parameters look like Tune RT's (else it is skipped: "unexpected layout").
     pub ok: bool,
+}
+
+/// LV1's tempo, and what last set it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TempoModel {
+    /// "128", "92.5"; "" when LV1's tempo can't be read.
+    pub bpm: String,
+    /// "21:04:12 · RTP iPad"; "" until TuneSync sets the tempo.
+    pub meta: String,
+    /// The last set did not land.
+    pub problem: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -327,6 +327,9 @@ fn tempo_by_cc() {
     assert_eq!(l[0].text, "RTP iPad CC 22 = 28 (128 BPM) ch 16");
     assert_eq!((l[1].level, l[1].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP iPad)"));
     assert_eq!(e.status().changes, 0, "the Tunes banner is not a tempo's");
+    let st = e.status();
+    let set = st.tempo_set.clone().unwrap();
+    assert_eq!((st.tempo, set.bpm, set.source.as_str(), set.ok), (Some(128.0), 128.0, "RTP iPad", true), "the window's Tempo tile");
 
     // a key cue with a tempo: both, one Tune pass
     e.on_midi("RTP iPad", &cc(16, 21, 92), 2000);
@@ -344,6 +347,26 @@ fn tempo_by_cc() {
     e.tick(&mut m, 4000);
     let last = log.snapshot().last().unwrap().clone();
     assert_eq!((last.level, last.text.as_str()), (Level::Warn, "Tempo 60 BPM did not land: LV1 took the call, reads 92 BPM"));
+    let st = e.status();
+    assert_eq!((st.tempo, st.tempo_set.map(|t| (t.bpm, t.ok))), (Some(92.0), Some((60.0, false))));
+}
+
+/// The window shows LV1's tempo even when it changes in LV1 (tap tempo, a scene): read
+/// about once a second.
+#[test]
+fn the_window_sees_lv1s_own_tempo() {
+    let mut m = FakeMixer { tempo: Some(120.0), ..Default::default() };
+    let e = Engine::new(Arc::new(LogRing::default()));
+    e.tick(&mut m, 100);
+    assert_eq!((e.status().tempo, e.status().tempo_set), (Some(120.0), None));
+    m.tempo = Some(97.0);
+    e.tick(&mut m, 600);
+    assert_eq!(e.status().tempo, Some(120.0), "not before a second");
+    e.tick(&mut m, 1100);
+    assert_eq!(e.status().tempo, Some(97.0));
+    m.tempo = None;
+    e.tick(&mut m, 2100);
+    assert_eq!(e.status().tempo, None, "can't be read");
 }
 
 #[test]

@@ -3,6 +3,7 @@
 use std::net::UdpSocket;
 
 use rtpmidi::session::{peer_state_name, PeerState};
+use tunesync::midi_map::bpm_text;
 use tunesync::tune::{key_name, scale_name};
 use tunesync_host::rtp::RtpView;
 use tunesync_host::Runtime;
@@ -62,6 +63,21 @@ pub fn build(rt: &Runtime, lv1_problem: Option<String>, local_ips: &[String]) ->
             meta: [st.last.stamp.as_str(), st.last.source.as_str(), st.last.brief.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" · "),
             problem: st.last.problem,
         }),
+        tempo: TempoModel {
+            bpm: st.tempo.map(bpm_text).unwrap_or_default(),
+            meta: st
+                .tempo_set
+                .as_ref()
+                .map(|t| {
+                    let mut s = format!("{} · {}", t.stamp, t.source);
+                    if !t.ok {
+                        s += &format!(" · {} BPM did not land", bpm_text(t.bpm));
+                    }
+                    s
+                })
+                .unwrap_or_default(),
+            problem: st.tempo_set.as_ref().is_some_and(|t| !t.ok),
+        },
         tunes: rt
             .tunes()
             .iter()

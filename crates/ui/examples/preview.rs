@@ -27,6 +27,7 @@ pub fn sample() -> Model {
             ..Default::default()
         },
         last: Some(LastChange { label: "A Natural Minor".into(), meta: "21:04:12 · RTP Playback-Mac · set 2, 1 locked".into(), problem: false }),
+        tempo: TempoModel { bpm: "128".into(), meta: "21:04:12 · RTP Playback-Mac".into(), problem: false },
         tunes: vec![
             TuneRow { label: "Ch 43".into(), name: "Vox 1".into(), key: "A".into(), scale: "Natural Minor".into(), receive: true, ok: true },
             TuneRow { label: "Ch 44".into(), name: "Vox 2".into(), key: "A".into(), scale: "Natural Minor".into(), receive: true, ok: true },
@@ -59,6 +60,7 @@ fn main() {
         ("sheet-channel", Sheet::Channel),
         ("sheet-scale", Sheet::Scale),
         ("sheet-key", Sheet::Key),
+        ("sheet-tempo", Sheet::Tempo),
         ("sheet-cc", Sheet::Number(NumberField::ScaleCc, "2".into())),
         ("sheet-log", Sheet::Log),
     ] {

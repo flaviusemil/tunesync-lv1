@@ -27,7 +27,19 @@ pub struct Change {
     pub problem: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The last tempo TuneSync set, for the window's Tempo tile.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TempoSet {
+    pub bpm: f64,
+    /// The log's time stamp when it was set.
+    pub stamp: String,
+    /// "RTP iPad", "RTP Playback-Mac clock"
+    pub source: String,
+    /// LV1 read back the new tempo.
+    pub ok: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Status {
     /// now_ms of the last message, 0 = none yet.
     pub last_midi_ms: u64,
@@ -41,6 +53,11 @@ pub struct Status {
     pub scans: u64,
     /// Valid when changes > 0.
     pub last: Change,
+    /// LV1's tempo in BPM as last read (about once a second, and after each set); None
+    /// when it can't be read.
+    pub tempo: Option<f64>,
+    /// None until TuneSync sets the tempo.
+    pub tempo_set: Option<TempoSet>,
 }
 
 struct State {
@@ -56,6 +73,8 @@ struct State {
     /// A tempo asked for and not yet set, with who asked; the last one wins.
     tempo: Option<(f64, String)>,
     clock: ClockFollower,
+    /// When LV1's tempo was last read for the window.
+    tempo_read_ms: Option<u64>,
 }
 
 impl State {
@@ -87,6 +106,9 @@ pub struct Engine {
 impl Engine {
     /// At most one "ignored" line per 5 s.
     pub const IGNORED_LOG_MS: u64 = 5000;
+    /// How often tick() reads LV1's tempo for the window (it can change in LV1: tap tempo,
+    /// a scene). The host ticks at least every 250 ms.
+    pub const TEMPO_READ_MS: u64 = 1000;
 
     pub fn new(log: Arc<LogRing>) -> Self {
         Self::with_ranges(log, default_ranges())
@@ -109,6 +131,7 @@ impl Engine {
                 tunes: Vec::new(),
                 tempo: None,
                 clock: ClockFollower::default(),
+                tempo_read_ms: None,
             }),
         }
     }
@@ -228,7 +251,7 @@ impl Engine {
         let mut change = Intent::default();
         let mut source = String::new();
         let mut ignored_line = None;
-        let (scan, fallback, tempo) = {
+        let (scan, fallback, tempo, read_tempo) = {
             let mut st = self.lock();
             if st.pending.due_in(now_ms) == Some(0) {
                 change = st.pending.take();
@@ -247,13 +270,23 @@ impl Engine {
                 st.ignored = 0;
                 st.last_ignored_log = Some(now_ms);
             }
-            (std::mem::take(&mut st.scan_wanted), st.settings.spelling, st.tempo.take())
+            let read_tempo = st.tempo_read_ms.is_none_or(|t| now_ms.saturating_sub(t) >= Self::TEMPO_READ_MS);
+            (std::mem::take(&mut st.scan_wanted), st.settings.spelling, st.tempo.take(), read_tempo)
         };
         if let Some(l) = ignored_line.take() {
             self.log.add(Level::Info, l);
         }
         if let Some((bpm, from)) = tempo {
-            self.set_tempo(mixer, bpm, &from);
+            let set = self.set_tempo(mixer, bpm, &from);
+            let mut st = self.lock();
+            st.status.tempo = mixer.tempo();
+            st.status.tempo_set = Some(set);
+            st.tempo_read_ms = Some(now_ms);
+        } else if read_tempo {
+            let t = mixer.tempo();
+            let mut st = self.lock();
+            st.status.tempo = t;
+            st.tempo_read_ms = Some(now_ms);
         }
 
         // LV1 work, outside the lock: a slow scan never blocks a MIDI callback.
@@ -293,11 +326,12 @@ impl Engine {
     }
 
     // Sets LV1's tempo and says whether it landed.
-    fn set_tempo(&self, mixer: &mut dyn Mixer, bpm: f64, from: &str) {
+    fn set_tempo(&self, mixer: &mut dyn Mixer, bpm: f64, from: &str) -> TempoSet {
         let was = mixer.tempo();
         let took = mixer.set_tempo(bpm);
         let now = mixer.tempo();
         let was_txt = was.map(|w| format!(" (was {})", bpm_text(w))).unwrap_or_default();
+        let ok = now.is_some_and(|n| (n - bpm).abs() < 0.01);
         match now {
             Some(n) if (n - bpm).abs() < 0.01 && was.is_some_and(|w| (w - bpm).abs() < 0.01) => {
                 self.log.add(Level::Ok, format!("Tempo {} BPM: already there ({from})", bpm_text(bpm)))
@@ -313,6 +347,7 @@ impl Engine {
                 ),
             ),
         }
+        TempoSet { bpm, stamp: self.log.stamp_now(), source: from.to_string(), ok }
     }
 
     pub fn status(&self) -> Status {

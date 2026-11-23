@@ -174,6 +174,12 @@ The window is about 480 px wide. From top to bottom:
    - **Spelling** is a ♯/♭ switch on the page itself.
 3. **Last change:** a banner with the key and scale, the time, the source and the result
    ("set 2, 1 locked").
+   - **Tempo** sits beside it: LV1's tempo ("128 BPM"), read about once a second, so a tap
+     tempo or a scene in LV1 shows too. "—" when it can't be read, orange when the last set
+     did not land.
+   - Tapping it opens the Tempo sheet: the tempo, when and from what TuneSync last set it,
+     and the reference: CC 21 = 40 to 127 (that BPM), CC 22 = 0 to 127 (100 + value), MIDI
+     clock followed. A CC that is also the Scale CC says so there.
 4. **Tunes:** one 44 px row per instance with its track, key, scale and a Rcv/Lock badge,
    plus a **Rescan** button. The list refreshes when the window opens and after each change.
 5. **Apply now:** Key and Scale tiles (each opens a picker sheet) and a big Apply button. It

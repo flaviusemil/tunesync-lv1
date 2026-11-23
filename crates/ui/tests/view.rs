@@ -45,7 +45,7 @@ fn every_target_is_big_enough() {
         }
     };
     check(&v);
-    for s in [Sheet::MidiIn, Sheet::Rtp, Sheet::Channel, Sheet::Key, Sheet::Scale, Sheet::Log, Sheet::Number(NumberField::ScaleCc, String::new())] {
+    for s in [Sheet::MidiIn, Sheet::Rtp, Sheet::Channel, Sheet::Key, Sheet::Scale, Sheet::Tempo, Sheet::Log, Sheet::Number(NumberField::ScaleCc, String::new())] {
         v.sheet = Some(s);
         check(&v);
     }
@@ -186,4 +186,34 @@ fn small_window_still_fits() {
     let f = layout(&m, &v, WIDTH, MIN_HEIGHT);
     let apply = f.hits.iter().find(|(_, h)| *h == Hit::ApplyNow).unwrap().0;
     assert!(apply.bottom() < MIN_HEIGHT, "Apply now is on screen at the minimum height");
+}
+
+fn texts(f: &Frame) -> Vec<String> {
+    f.items.iter().filter_map(|i| if let tunesync_ui::draw::Item::Text { text, .. } = i { Some(text.clone()) } else { None }).collect()
+}
+
+/// LV1's tempo sits beside the banner; its sheet says how the tracks set it.
+#[test]
+fn tempo_tile_and_sheet() {
+    let mut m = model();
+    let mut v = View::new();
+    let page = texts(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT));
+    assert!(page.contains(&"—".to_string()), "LV1's tempo not read yet: {page:?}");
+
+    m.tempo = TempoModel { bpm: "128".into(), meta: "21:04:12 · RTP iPad".into(), problem: false };
+    assert!(texts(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT)).contains(&"128 BPM".to_string()));
+    assert!(tap(&mut v, &m, &Hit::TempoTile).is_empty(), "the sheet only shows");
+    assert_eq!(v.sheet, Some(Sheet::Tempo));
+    let sheet = texts(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT));
+    for t in ["Set 21:04:12 · RTP iPad", "CC 21 = 40 to 127", "CC 22 = 0 to 127", "100 + value · 28 → 128 BPM", "MIDI clock"] {
+        assert!(sheet.iter().any(|s| s == t), "{t:?} missing: {sheet:?}");
+    }
+    assert!(tap(&mut v, &m, &Hit::Done).is_empty());
+    assert_eq!(v.sheet, None);
+
+    // the Scale CC on 21 takes it from the tempo
+    m.settings.scale_cc = 21;
+    v.sheet = Some(Sheet::Tempo);
+    let sheet = texts(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT));
+    assert!(sheet.iter().any(|s| s == "is the Scale CC: no tempo"), "{sheet:?}");
 }
