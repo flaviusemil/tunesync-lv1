@@ -38,7 +38,7 @@ fn every_target_is_big_enough() {
     let check = |v: &View| {
         let f = layout(&m, v, WIDTH, DEFAULT_HEIGHT);
         for (r, h) in &f.hits {
-            if matches!(h, Hit::Scrim | Hit::SheetList | Hit::TunesList) {
+            if matches!(h, Hit::Scrim | Hit::SheetList | Hit::TunesList | Hit::SheetGrab) {
                 continue;
             }
             assert!(r.h >= 36.0 && r.w >= 44.0, "{h:?} is {}x{}", r.w, r.h);
@@ -216,4 +216,111 @@ fn tempo_tile_and_sheet() {
     v.sheet = Some(Sheet::Tempo);
     let sheet = texts(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT));
     assert!(sheet.iter().any(|s| s == "is the Scale CC: no tempo"), "{sheet:?}");
+}
+
+/// On the page, a connected input is green whether or not MIDI is arriving (gray read as
+/// "not connected"); MIDI makes it ripple for a moment, then the page is still again.
+#[test]
+fn connected_inputs_are_green_on_the_page() {
+    use tunesync_ui::draw::theme::{ACC, IDLE_DOT, WARN};
+    use tunesync_ui::draw::Item;
+    let mut m = model();
+    m.settings.rtp_enabled = true;
+    let mut v = View::new();
+    v.now_ms = 10_000;
+    let dots = |m: &Model, v: &View| -> Vec<_> { layout(m, v, WIDTH, DEFAULT_HEIGHT).items.iter().filter_map(|i| if let Item::Dot { color, .. } = i { Some(*color) } else { None }).collect() };
+    assert_eq!(dots(&m, &v), vec![ACC, ACC], "MIDI in open + a peer connected, no MIDI for a while: both green");
+    assert!(!layout(&m, &v, WIDTH, DEFAULT_HEIGHT).animating, "and still");
+
+    m.rtp.peers[0].midi_at_ms = 9_900;
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    assert!(f.animating && f.items.iter().any(|i| matches!(i, Item::Ring { .. })), "a cue ripples the RTP-MIDI dot");
+
+    m.rtp.peers[0].connected = false;
+    m.midi_open.clear();
+    assert_eq!(dots(&m, &v), vec![WARN, IDLE_DOT], "port gone: orange; no peer connected: gray");
+}
+
+/// Presses at (x, y), drags to y + dy in `steps` moves `ms` apart, and lets go.
+fn drag(v: &mut View, m: &Model, x: f32, y: f32, dy: f32, steps: u32, ms: u64) -> Vec<Command> {
+    let f = layout(m, v, WIDTH, DEFAULT_HEIGHT);
+    v.pointer_down(&f, x, y);
+    for i in 1..=steps {
+        v.now_ms += ms;
+        v.pointer_move(x, y + dy * i as f32 / steps as f32);
+    }
+    let f = layout(m, v, WIDTH, DEFAULT_HEIGHT);
+    v.pointer_up(&f, x, y + dy, m)
+}
+
+fn grab_bar(v: &View, m: &Model) -> (f32, f32) {
+    let f = layout(m, v, WIDTH, DEFAULT_HEIGHT);
+    let (r, _) = f.hits.iter().rev().find(|(_, h)| *h == Hit::SheetGrab).expect("a grab bar").clone();
+    (r.x + 30.0, r.y + 12.0)
+}
+
+/// The grab bar looks draggable: pulled down, a sheet follows and closes; a short pull
+/// springs back; a quick flick closes it too.
+#[test]
+fn a_sheet_pulled_down_closes() {
+    let m = model();
+    let mut v = View::new();
+    v.now_ms = 1000;
+
+    v.sheet = Some(Sheet::Channel);
+    let (x, y) = grab_bar(&v, &m);
+    let top = |v: &View| layout(&m, v, WIDTH, DEFAULT_HEIGHT).hits.iter().rev().find(|(_, h)| *h == Hit::SheetGrab).unwrap().0.y;
+    let t0 = top(&v);
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    v.pointer_down(&f, x, y);
+    v.pointer_move(x, y + 60.0);
+    assert!((top(&v) - t0 - 60.0).abs() < 0.5, "the sheet follows the finger");
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    v.now_ms += 400; // held, then let go: no flick
+    assert!(v.pointer_up(&f, x, y + 60.0, &m).is_empty());
+    assert_eq!((v.sheet.clone(), v.sheet_pull), (Some(Sheet::Channel), 0.0), "a short pull springs back");
+
+    assert!(drag(&mut v, &m, x, y, 150.0, 10, 30).is_empty(), "closing sets nothing");
+    assert_eq!(v.sheet, None, "pulled far: closed");
+
+    v.sheet = Some(Sheet::Channel);
+    drag(&mut v, &m, x, y, 50.0, 3, 16);
+    assert_eq!(v.sheet, None, "a quick flick closes it");
+
+    v.sheet = Some(Sheet::Channel);
+    drag(&mut v, &m, x, y, -80.0, 4, 30);
+    assert_eq!(v.sheet, Some(Sheet::Channel), "pushed up: stays");
+
+    // Done is in the title row and still a tap
+    assert!(tap(&mut v, &m, &Hit::Done).is_empty());
+    assert_eq!(v.sheet, None);
+}
+
+/// Pulled down by its rows: at their top the sheet comes down; scrolled, the rows scroll
+/// back first.
+#[test]
+fn a_sheet_pulled_by_its_rows() {
+    let mut m = model();
+    m.log = (0..80).map(|i| tunesync::log::LogLine { stamp: "x".into(), level: tunesync::log::Level::Info, text: format!("line {i}") }).collect();
+    let mut v = View::new();
+    v.now_ms = 1000;
+    v.sheet = Some(Sheet::Log);
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    let body = f.hits.iter().rev().find(|(_, h)| *h == Hit::SheetList).unwrap().0;
+    let (x, y) = (body.x + 200.0, body.y + 120.0);
+
+    v.sheet_scroll = 300.0;
+    drag(&mut v, &m, x, y, 200.0, 10, 30);
+    assert_eq!(v.sheet, Some(Sheet::Log), "scrolled down: the rows scroll back, the sheet stays");
+    assert!((v.sheet_scroll - 100.0).abs() < 0.5, "scroll {}", v.sheet_scroll);
+
+    drag(&mut v, &m, x, y, 260.0, 10, 30);
+    assert_eq!(v.sheet, None, "100 back to the top, then pulled 160: closed");
+
+    // a press on a row (Copy) that pulls the sheet down closes it, and is no tap
+    v.sheet = Some(Sheet::Log);
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    let (r, _) = f.hits.iter().rev().find(|(_, h)| *h == Hit::CopyLog).unwrap().clone();
+    assert!(drag(&mut v, &m, r.x + 10.0, r.y + 10.0, 140.0, 10, 30).is_empty(), "no Copy");
+    assert_eq!(v.sheet, None);
 }

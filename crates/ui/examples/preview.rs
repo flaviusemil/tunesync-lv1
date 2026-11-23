@@ -15,6 +15,7 @@ pub fn sample() -> Model {
         midi_ports: vec!["MIDISPORT 2x2 In A".into(), "WING USB MIDI".into()],
         midi_open: "MIDISPORT 2x2 In A".into(),
         midi_active: true,
+        midi_at_ms: 0,
         rtp: RtpModel {
             open: true,
             active: true,
@@ -67,4 +68,8 @@ fn main() {
         v.sheet = Some(sheet);
         write(name, &v);
     }
+    // a finger pulling the RTP sheet down
+    v.sheet = Some(Sheet::Rtp);
+    v.sheet_pull = 160.0;
+    write("sheet-rtp-pulled", &v);
 }

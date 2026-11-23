@@ -50,6 +50,7 @@ pub fn build(rt: &Runtime, lv1_problem: Option<String>, local_ips: &[String]) ->
         midi_ports: rt.midi_ports(),
         midi_open: rt.midi_open(),
         midi_active: last_midi != 0 && now.saturating_sub(last_midi) < ACTIVE_MS,
+        midi_at_ms: last_midi,
         rtp: RtpModel {
             open: rv.open,
             error: rv.error.clone(),

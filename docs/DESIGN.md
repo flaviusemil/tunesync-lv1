@@ -158,12 +158,17 @@ touchscreens:
 - No small dropdowns and no tabs.
 - Nothing needed during a show sits below the fold.
 - Details open as sheets inside the window, the way Headlink's dialogs do, never as separate
-  windows.
+  windows. A sheet closes with Done, a tap on the dimmed page, Escape, or by pulling it down:
+  by its grab bar and title, or by its rows once they are at their top. It follows the
+  finger and closes past 90 DIP or on a quick flick; a shorter pull springs back.
 
 The window is about 480 px wide. From top to bottom:
 
 1. **Inputs:** two tiles, **MIDI in** (the port name) and **RTP-MIDI** (off / n peers), each
-   with a dot that is green when MIDI arrived in the last few seconds.
+   with a dot: green when the port is open or a peer is connected (gray was read as "not
+   connected" while a quiet peer was there), orange when the port is gone or RTP-MIDI could
+   not open, gray with no peer. MIDI arriving makes it glow, and each message sends a
+   ripple out of it, as on the RTP sheet's peers; the page itself never animates otherwise.
    - Tapping MIDI in opens a sheet with the host's input ports as 48 px rows, plus "None". The
      port is chosen by name and reopened when it reappears, because Windows renumbers devices.
    - Tapping RTP-MIDI opens the RTP sheet (see RTP-MIDI below).

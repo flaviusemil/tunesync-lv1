@@ -27,6 +27,10 @@ const OPT_H: f32 = 48.0;
 const TEMPO_W: f32 = 116.0;
 /// Status dots.
 const DOT_R: f32 = 4.5;
+/// A sheet pulled down this far (DIP) closes when let go...
+const DISMISS_PULL: f32 = 90.0;
+/// ...or pulled a little and flicked down at least this fast (DIP per ms).
+const DISMISS_FLICK: f32 = 0.6;
 /// A connected peer's dot breathes once in this time...
 const BREATH_MS: u64 = 2400;
 /// ...and MIDI from it sends a ripple out for this long.
@@ -101,6 +105,8 @@ pub enum Hit {
     /// A list that scrolls when dragged.
     TunesList,
     SheetList,
+    /// A sheet's grab bar and title: dragged down, the sheet follows and closes.
+    SheetGrab,
 }
 
 impl Hit {
@@ -108,6 +114,7 @@ impl Hit {
         match self {
             Hit::TunesList => Some(Scroller::Tunes),
             Hit::SheetList => Some(Scroller::Sheet),
+            Hit::SheetGrab => Some(Scroller::Grab),
             _ => None,
         }
     }
@@ -116,7 +123,10 @@ impl Hit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Scroller {
     Tunes,
+    /// A sheet's rows; pulled down past their top, the sheet itself.
     Sheet,
+    /// The sheet itself.
+    Grab,
 }
 
 /// One painted frame: items in paint order, tap regions (later ones are on top), and the
@@ -146,6 +156,10 @@ struct Drag {
     y: f32,
     scroll0: f32,
     moved: bool,
+    /// The last move and the speed down to it (DIP per ms), for a flick.
+    last_y: f32,
+    last_ms: u64,
+    vy: f32,
 }
 
 /// The window's own state: the open sheet, scroll positions, what is pressed, and the
@@ -157,6 +171,8 @@ pub struct View {
     pub pick_scale: Option<u8>,
     pub tunes_scroll: f32,
     pub sheet_scroll: f32,
+    /// How far the open sheet is pulled down by a finger (0 = in place).
+    pub sheet_pull: f32,
     /// The host's clock, set before each layout: what moves is drawn for this moment, and
     /// the model's times (`PeerRow::midi_at_ms`) are on it. 0 = nothing moves (previews, tests).
     pub now_ms: u64,
@@ -190,9 +206,11 @@ impl View {
         let scroll0 = match list.as_ref().and_then(|h| h.scrolls()) {
             Some(Scroller::Tunes) => self.tunes_scroll,
             Some(Scroller::Sheet) => self.sheet_scroll,
-            None => 0.0,
+            Some(Scroller::Grab) | None => 0.0,
         };
-        self.drag = hit.map(|h| Drag { hit: h, x, y, scroll0, moved: false });
+        self.sheet_pull = 0.0;
+        let now = self.now_ms;
+        self.drag = hit.map(|h| Drag { hit: h, x, y, scroll0, moved: false, last_y: y, last_ms: now, vy: 0.0 });
         if let (Some(d), Some(l)) = (self.drag.as_mut(), list) {
             if d.hit.scrolls().is_none() {
                 // Remember the list too: a row press that moves becomes a scroll.
@@ -207,6 +225,11 @@ impl View {
         if !d.moved && ((x - d.x).abs() > SLOP || (y - d.y).abs() > SLOP) {
             d.moved = true;
         }
+        if self.now_ms > d.last_ms {
+            d.vy = (y - d.last_y) / (self.now_ms - d.last_ms) as f32;
+            d.last_ms = self.now_ms;
+        }
+        d.last_y = y;
         if !d.moved {
             return;
         }
@@ -214,7 +237,12 @@ impl View {
         let s = d.scroll0 - (y - d.y);
         match target {
             Some(Scroller::Tunes) => self.tunes_scroll = s.clamp(0.0, self.tunes_max),
-            Some(Scroller::Sheet) => self.sheet_scroll = s.clamp(0.0, self.sheet_max),
+            // past the top of its rows, the sheet itself comes down with the finger
+            Some(Scroller::Sheet) => {
+                self.sheet_scroll = s.clamp(0.0, self.sheet_max);
+                self.sheet_pull = (-s).max(0.0);
+            }
+            Some(Scroller::Grab) => self.sheet_pull = (y - d.y).max(0.0),
             None => {}
         }
     }
@@ -222,7 +250,16 @@ impl View {
     /// The finger lifted: a tap on the hit it went down on (and still is over) acts.
     pub fn pointer_up(&mut self, f: &Frame, x: f32, y: f32, m: &Model) -> Vec<Command> {
         self.list_under = None;
+        let pull = std::mem::take(&mut self.sheet_pull);
         let Some(d) = self.drag.take() else { return Vec::new() };
+        if d.moved && pull > 0.0 {
+            // A finger that stopped before lifting is not a flick.
+            let flick = d.vy >= DISMISS_FLICK && self.now_ms.saturating_sub(d.last_ms) < 100;
+            if pull >= DISMISS_PULL || (flick && pull >= 16.0) {
+                self.close_sheet(); // as a tap on the scrim: nothing set
+            }
+            return Vec::new(); // else it springs back
+        }
         if d.moved || f.hit_at(x, y) != Some(&d.hit) {
             return Vec::new();
         }
@@ -234,7 +271,8 @@ impl View {
         let list = f.hits.iter().rev().find(|(r, h)| r.contains(x, y) && h.scrolls().is_some()).map(|(_, h)| h.clone());
         match list.and_then(|h| h.scrolls()) {
             Some(Scroller::Tunes) => self.tunes_scroll = (self.tunes_scroll + dy).clamp(0.0, f.tunes_max),
-            Some(Scroller::Sheet) => self.sheet_scroll = (self.sheet_scroll + dy).clamp(0.0, f.sheet_max),
+            // over the title too: a wheel never closes a sheet
+            Some(Scroller::Sheet | Scroller::Grab) => self.sheet_scroll = (self.sheet_scroll + dy).clamp(0.0, f.sheet_max),
             None => {}
         }
     }
@@ -256,6 +294,7 @@ impl View {
     fn close_sheet(&mut self) {
         self.sheet = None;
         self.sheet_scroll = 0.0;
+        self.sheet_pull = 0.0;
     }
 
     /// What a tap on `h` does.
@@ -335,7 +374,7 @@ impl View {
             }
             Hit::CopyLog => out.push(Command::CopyLog),
             Hit::ClearLog => out.push(Command::ClearLog),
-            Hit::TunesList | Hit::SheetList => {}
+            Hit::TunesList | Hit::SheetList | Hit::SheetGrab => {}
         }
         out
     }
@@ -380,13 +419,15 @@ impl B<'_> {
     fn is_pressed(&self, h: &Hit) -> bool {
         self.v.pressed() == Some(h)
     }
-    /// A tappable tile: a label over a value, a chevron at the right.
-    fn tile(&mut self, r: Rect, label: &str, value: &str, value_color: Color, dot: Option<(Color, bool)>, h: Hit) {
+    /// A tappable tile: a label over a value, a chevron at the right. The dot: its colour,
+    /// whether it glows, and when MIDI last came (a ripple goes out of it then; 0 = never).
+    fn tile(&mut self, r: Rect, label: &str, value: &str, value_color: Color, dot: Option<(Color, bool, u64)>, h: Hit) {
         let fill = if self.is_pressed(&h) { PRESSED } else { PANEL };
         self.bx(r, 10.0, fill, Some(LINE));
         self.label(Rect::new(r.x + 12.0, r.y + 8.0, r.w - 30.0, 16.0), label);
         let mut vx = r.x + 12.0;
-        if let Some((c, glow)) = dot {
+        if let Some((c, glow, midi_at_ms)) = dot {
+            self.ripple(vx + 4.5, r.y + 36.0, midi_at_ms);
             self.dot(vx + 4.5, r.y + 36.0, c, glow);
             vx += 15.0;
         }
@@ -417,13 +458,20 @@ impl B<'_> {
         let b = 0.5 - 0.5 * ((now % BREATH_MS) as f32 / BREATH_MS as f32 * tau).cos(); // 0 -> 1 -> 0
         let halo = Item::Dot { cx, cy, radius: DOT_R * (1.45 + 0.55 * b), color: ACC.with_alpha((0x1c as f32 + 0x44 as f32 * b) as u8), glow: false };
         self.f.items.push(halo);
-        let age = now.saturating_sub(midi_at_ms);
-        if midi_at_ms != 0 && age < RIPPLE_MS {
-            let t = age as f32 / RIPPLE_MS as f32;
-            let out = 1.0 - (1.0 - t).powi(3); // fast, then settling
-            self.f.items.push(Item::Ring { cx, cy, radius: DOT_R + 10.0 * out, width: 1.5, color: ACC.with_alpha((0xd0 as f32 * (1.0 - t)) as u8) });
-        }
+        self.ripple(cx, cy, midi_at_ms);
         self.f.items.push(Item::Dot { cx, cy, radius: DOT_R, color: ACC, glow: false });
+        self.f.animating = true;
+    }
+    /// A ring going out of a dot for a moment after MIDI came at `midi_at_ms`.
+    fn ripple(&mut self, cx: f32, cy: f32, midi_at_ms: u64) {
+        let now = self.v.now_ms;
+        let age = now.saturating_sub(midi_at_ms);
+        if now == 0 || midi_at_ms == 0 || age >= RIPPLE_MS {
+            return;
+        }
+        let t = age as f32 / RIPPLE_MS as f32;
+        let out = 1.0 - (1.0 - t).powi(3); // fast, then settling
+        self.f.items.push(Item::Ring { cx, cy, radius: DOT_R + 10.0 * out, width: 1.5, color: ACC.with_alpha((0xd0 as f32 * (1.0 - t)) as u8) });
         self.f.animating = true;
     }
     /// A 48 DIP option row in a sheet.
@@ -462,20 +510,23 @@ pub fn layout(m: &Model, v: &View, w: f32, h: f32) -> Frame {
     let (midi_val, midi_col, midi_dot) = if s.midi_port.is_empty() {
         ("None".to_string(), DIM, None)
     } else if m.midi_open == s.midi_port {
-        (s.midi_port.clone(), FG, Some((if m.midi_active { ACC } else { IDLE_DOT }, m.midi_active)))
+        // open = green; MIDI arriving makes it glow and ripple
+        (s.midi_port.clone(), FG, Some((ACC, m.midi_active, m.midi_at_ms)))
     } else {
-        (format!("{} (not connected)", s.midi_port), WARN, Some((WARN, false)))
+        (format!("{} (not connected)", s.midi_port), WARN, Some((WARN, false, 0)))
     };
     b.tile(Rect::new(PAD, y, half, TILE_H), "MIDI in", &midi_val, midi_col, midi_dot, Hit::MidiTile);
     let connected = m.rtp.peers.iter().filter(|p| p.connected).count();
     let (rtp_val, rtp_col, rtp_dot) = if !s.rtp_enabled {
         ("Off".to_string(), DIM, None)
     } else if !m.rtp.open {
-        ("Not open".to_string(), WARN, Some((WARN, false)))
+        ("Not open".to_string(), WARN, Some((WARN, false, 0)))
     } else if connected == 0 {
-        ("On · no peers".to_string(), FG, Some((IDLE_DOT, false)))
+        ("On · no peers".to_string(), FG, Some((IDLE_DOT, false, 0)))
     } else {
-        (format!("{connected} peer{}", if connected == 1 { "" } else { "s" }), FG, Some((if m.rtp.active { ACC } else { IDLE_DOT }, m.rtp.active)))
+        // a peer connected = green; MIDI from one makes it glow and ripple
+        let midi_at = m.rtp.peers.iter().filter(|p| p.connected).map(|p| p.midi_at_ms).max().unwrap_or(0);
+        (format!("{connected} peer{}", if connected == 1 { "" } else { "s" }), FG, Some((ACC, m.rtp.active, midi_at)))
     };
     b.tile(Rect::new(PAD + half + 10.0, y, half, TILE_H), "RTP-MIDI", &rtp_val, rtp_col, rtp_dot, Hit::RtpTile);
     y += TILE_H + GAP;
@@ -606,13 +657,13 @@ fn log_line(b: &mut B, r: Rect, l: &tunesync::log::LogLine) {
 }
 
 /// A sheet over the page: a scrim, then a panel from the bottom with a grab bar, a title
-/// and Done, and its rows (which scroll when they do not fit).
+/// and Done, and its rows (which scroll when they do not fit). Pulled down by the grab bar,
+/// or by its rows past their top, it follows the finger and closes when let go far enough.
 fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
     // Everything under the sheet stops being tappable.
     b.f.hits.clear();
     b.f.edit = None;
-    b.bx(Rect::new(0.0, 0.0, w, h), 0.0, SCRIM, None);
-    b.hit(Rect::new(0.0, 0.0, w, h), Hit::Scrim);
+    let pull = v.sheet_pull.max(0.0);
     let s = &m.settings;
     let cw = w - 2.0 * PAD;
 
@@ -883,14 +934,20 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
     let content_h = y;
 
     // The panel: as tall as its rows, at most the window less 40 DIP; the rows scroll.
+    // Pulled down by a finger, it comes down with it and the scrim fades.
     let head = 10.0 + 5.0 + 10.0 + 30.0 + 10.0;
     let max_body = (h - 40.0 - head - 14.0).max(OPT_H);
     let body_h = content_h.min(max_body);
-    let top = h - (head + body_h + 14.0);
-    let panel = Rect::new(0.0, top, w, h - top);
+    let panel_h = head + body_h + 14.0;
+    let top = h - panel_h + pull;
+    let fade = (1.0 - pull / panel_h).clamp(0.0, 1.0);
+    b.bx(Rect::new(0.0, 0.0, w, h), 0.0, SCRIM.with_alpha((SCRIM.a() as f32 * fade) as u8), None);
+    b.hit(Rect::new(0.0, 0.0, w, h), Hit::Scrim);
+    let panel = Rect::new(0.0, top, w, panel_h);
     b.bx(panel, 14.0, SHEET, Some(LINE));
-    b.bx(Rect::new(0.0, h - 14.0, w, 14.0), 0.0, SHEET, None); // square bottom corners
+    b.bx(Rect::new(0.0, top + panel_h - 14.0, w, 14.0), 0.0, SHEET, None); // square bottom corners
     b.hit(panel, Hit::SheetList); // taps on the panel's empty parts do nothing
+    b.hit(Rect::new(0.0, top, w, head), Hit::SheetGrab); // the grab bar and title pull it down
     b.bx(Rect::new(w / 2.0 - 22.0, top + 10.0, 44.0, 5.0), 2.5, GRAB, None);
     let hy = top + 25.0;
     b.text(Rect::new(PAD, hy, cw - 100.0, 30.0), &title, 15.0, 700, FG, Align::Left);

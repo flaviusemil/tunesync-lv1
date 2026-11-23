@@ -14,6 +14,9 @@ pub struct Model {
     pub midi_open: String,
     /// MIDI arrived on the local input in the last few seconds.
     pub midi_active: bool,
+    /// When MIDI last came in on the local input, on the clock of
+    /// [`crate::view::View::now_ms`]; 0 = never.
+    pub midi_at_ms: u64,
     pub rtp: RtpModel,
     /// The banner; None before the first change.
     pub last: Option<LastChange>,

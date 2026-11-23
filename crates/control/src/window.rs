@@ -41,7 +41,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use tunesync::tune::Spelling;
 use tunesync_host::sys::Worker;
 use tunesync_host::Runtime;
-use tunesync_ui::draw::{Align, Font, Item};
+use tunesync_ui::draw::{theme, Align, Color, Font, Item};
 use tunesync_ui::model::Model;
 use tunesync_ui::view::{layout, Command, Frame, View, DEFAULT_HEIGHT, MIN_HEIGHT, WIDTH};
 
@@ -52,6 +52,11 @@ const TIMER_REFRESH: usize = 1;
 const TIMER_ANIM: usize = 2;
 const ANIM_MS: u32 = 33;
 const EDIT_ID: usize = 100;
+
+/// GDI's 0x00BBGGRR for a theme colour.
+fn colorref(c: Color) -> COLORREF {
+    COLORREF(u32::from(c.b()) << 16 | u32::from(c.g()) << 8 | u32::from(c.r()))
+}
 const CF_UNICODETEXT: u32 = 13;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
 
@@ -141,7 +146,7 @@ fn wide(s: &str) -> Vec<u16> {
 unsafe fn set_icons(hwnd: HWND, inst: HMODULE, dpi: f32, icons: &mut [HICON; 2]) {
     for (i, base) in [16.0f32, 32.0].into_iter().enumerate() {
         let px = (base * dpi / 96.0).round() as i32;
-        let Ok(h) = LoadImageW(inst, PCWSTR(1 as *const u16), IMAGE_ICON, px, px, LR_DEFAULTCOLOR) else { continue };
+        let Ok(h) = LoadImageW(inst, PCWSTR(std::ptr::without_provenance(1)) /* MAKEINTRESOURCE(1) */, IMAGE_ICON, px, px, LR_DEFAULTCOLOR) else { continue };
         let h = HICON(h.0);
         // WM_SETICON: wParam 0 = ICON_SMALL, 1 = ICON_BIG.
         SendMessageW(hwnd, WM_SETICON, WPARAM(i), LPARAM(h.0 as isize));
@@ -514,6 +519,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_MOUSEMOVE => {
             if st.captured {
                 let (x, y) = lparam_xy(lp);
+                st.view.now_ms = st.rt.now_ms(); // a flick is timed
                 st.view.pointer_move(st.dip(x), st.dip(y));
                 let _ = InvalidateRect(hwnd, None, false);
             }
@@ -543,7 +549,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let in_contact = ((wp.0 >> 16) & 0x0004) != 0;
             match msg {
                 0x0246 => st.view.pointer_down(&st.frame, x, y),
-                0x0245 if in_contact => st.view.pointer_move(x, y),
+                0x0245 if in_contact => {
+                    st.view.now_ms = st.rt.now_ms(); // a flick is timed
+                    st.view.pointer_move(x, y)
+                }
                 0x0247 => {
                     st.relayout(hwnd);
                     let m = st.model.clone();
@@ -583,8 +592,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_CTLCOLOREDIT => {
             let hdc = HDC(wp.0 as _);
-            SetTextColor(hdc, COLORREF(0x00edeae8));
-            SetBkColor(hdc, COLORREF(0x00281f22 & 0x00ffffff | 0x0028221f));
+            // The box sits on a panel row: the panel's colour behind its text too.
+            SetTextColor(hdc, colorref(theme::FG));
+            SetBkColor(hdc, colorref(theme::PANEL));
             LRESULT(st.edit_brush.0 as isize)
         }
         WM_CLOSE => {
@@ -641,7 +651,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             &mut inst,
         );
         let icon = |size: i32| {
-            LoadImageW(inst, PCWSTR(1 as *const u16), IMAGE_ICON, size, size, LR_SHARED).map(|h| HICON(h.0)).unwrap_or_default()
+            LoadImageW(inst, PCWSTR(std::ptr::without_provenance(1)) /* MAKEINTRESOURCE(1) */, IMAGE_ICON, size, size, LR_SHARED).map(|h| HICON(h.0)).unwrap_or_default()
         };
         let class = w!("TuneSyncWindow");
         let wc = WNDCLASSEXW {
@@ -721,7 +731,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             edit,
             edit_font: HFONT::default(),
             edit_font_dpi: 0.0,
-            edit_brush: CreateSolidBrush(COLORREF(0x0028221f)),
+            edit_brush: CreateSolidBrush(colorref(theme::PANEL)),
             edit_shown: false,
             edit_text: String::new(),
             captured: false,
