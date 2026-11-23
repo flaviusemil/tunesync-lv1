@@ -13,7 +13,7 @@ fn model() -> Model {
         rtp: RtpModel {
             open: true,
             found: vec![FoundRow { name: "Studio".into(), ip: "10.0.0.7".into(), port: 5004, joined: false }],
-            peers: vec![PeerRow { name: "Main".into(), ip: "10.0.0.5".into(), port: 5004, status: "now".into(), connected: true, invited: true }],
+            peers: vec![PeerRow { name: "Main".into(), ip: "10.0.0.5".into(), port: 5004, status: "now".into(), rtt: "4 ms".into(), connected: true, invited: true }],
             ..Default::default()
         },
         ..Default::default()

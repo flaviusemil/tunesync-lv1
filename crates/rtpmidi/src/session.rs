@@ -9,6 +9,7 @@
 //! - **we invite the peer** (Connect in the window, or a remembered peer): IN to its
 //!   control port, then its data port, one a second; then we run clock sync. Refused,
 //!   unanswered or gone quiet: invited again later. After a BY we wait longer (30 s).
+//!   Why it waits is logged once; the retries of a peer that stays away are not.
 //!
 //! Receiver feedback (RS) goes to every connected peer's control port once a second
 //! while its sequence moves.
@@ -156,6 +157,9 @@ struct Peer {
     fed: u32,
     next_rs: u64,
     gone: bool,
+    /// Why it went to Waiting, logged once: while it stays away its retries are not
+    /// logged again (Connected or a new reason clears it).
+    waiting_why: Option<String>,
 }
 
 impl Peer {
@@ -192,6 +196,7 @@ impl Peer {
             fed: 0,
             next_rs: 0,
             gone: false,
+            waiting_why: None,
         }
     }
     // A peer that accepted or sent an invitation holds a session with us: it gets a BY.
@@ -341,12 +346,30 @@ impl Inner {
             return;
         }
         p.v.state = s;
+        // A remembered peer that is away is invited again every few seconds, all night if
+        // need be: say why once, then stay quiet until it connects or the reason changes.
+        let repeat = match s {
+            PeerState::Waiting => p.waiting_why.as_deref() == Some(why),
+            PeerState::Inviting | PeerState::InvitingData => p.waiting_why.is_some(),
+            _ => false,
+        };
+        match s {
+            PeerState::Waiting => p.waiting_why = Some(why.to_string()),
+            PeerState::Connected => p.waiting_why = None,
+            _ => {}
+        }
+        if repeat {
+            return;
+        }
         let d = p.v.display();
         let mut l = if d == p.v.ip { format!("RTP-MIDI: {d} {}", peer_state_name(s)) } else { format!("RTP-MIDI: {d} ({}) {}", p.v.ip, peer_state_name(s)) };
         if !why.is_empty() {
             l += &format!(" - {why}");
         }
-        // Inviting / Waiting cycles of a peer that is away are detail; arrivals and departures are not.
+        if s == PeerState::Waiting {
+            l += "; will keep inviting it";
+        }
+        // An invitation in flight is detail; arrivals, departures and why it waits are not.
         out.log(l, matches!(s, PeerState::Inviting | PeerState::InvitingData | PeerState::Accepting));
     }
     fn start_attempt(&mut self, i: usize, now: u64) {
@@ -361,6 +384,7 @@ impl Inner {
         p.ck_sent = 0;
         p.ck_ts1 = 0;
         p.ck_missed = 0;
+        p.v.rtt_ms = None;
         p.v.ctl_port = p.v.target;
         p.v.data_port = p.v.target.wrapping_add(1);
         p.next_at = now;
@@ -515,6 +539,7 @@ impl Session {
                 if g.peers[i].v.state == PeerState::Waiting {
                     g.start_attempt(i, now);
                     let mut p = std::mem::replace(&mut g.peers[i], Peer::new(""));
+                    p.waiting_why = None; // asked for again: log this attempt afresh
                     g.set_state(&mut p, PeerState::Inviting, "", &mut out);
                     g.peers[i] = p;
                 }

@@ -150,6 +150,7 @@ Tune instances, and drives it end to end: interface checks, an RTP-MIDI cue, Loc
 | [`crates/lv1-surface`](crates/lv1-surface) | eMotion LV1's control-surface driver interface in Rust: the ABI, the exported entry points and guarded calls into LV1. |
 | [`crates/ui`](crates/ui) | The settings window as a portable view model, with an SVG renderer for previews and tests. |
 | [`crates/control`](crates/control) | `TuneSync_Control.dll`, the thin module LV1 loads, with the Direct2D window. |
+| [`crates/capi`](crates/capi) | TuneSync as a C library (`include/tunesync.h`, static or shared) for a C or C++ host. |
 | [`crates/sim`](crates/sim) | A simulated LV1 for testing the DLL without LV1. |
 
 The design and its decisions are documented in [docs/DESIGN.md](docs/DESIGN.md).
@@ -157,10 +158,12 @@ The design and its decisions are documented in [docs/DESIGN.md](docs/DESIGN.md).
 ## Status
 
 TuneSync 0.1 has been tested on a live LV1 system (LV1 17.3.108, Windows 11): RTP-MIDI and
-local MIDI cues, Lock, the settings window and LV1's responsiveness. Still to be verified:
-a Mac joining over a real network, and the stereo Tune instance.
+local MIDI cues, Lock, the settings window, LV1's responsiveness, and a Mac, an iPad and an
+iPhone joining over a real network in both directions. Still to be verified: the stereo Tune
+instance.
 
-Planned: a macOS version, and a C API so the library can be embedded in other hosts.
+The library is also available as a C API ([`crates/capi`](crates/capi)) for embedding in other
+hosts. Planned: a macOS version.
 
 ## License
 

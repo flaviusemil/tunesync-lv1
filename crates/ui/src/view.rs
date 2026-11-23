@@ -636,9 +636,14 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
                 let r = Rect::new(0.0, y, cw, OPT_H);
                 rows.bx(r, 8.0, PANEL, Some(LINE));
                 rows.dot(16.5, y + OPT_H / 2.0, if p.connected { ACC } else { IDLE_DOT }, p.connected);
-                rows.text(Rect::new(30.0, y, cw * 0.45, OPT_H), &p.name, 14.0, 400, FG, Align::Left);
-                let sub_w = if p.invited { cw - 30.0 - cw * 0.45 - 60.0 } else { cw - 30.0 - cw * 0.45 - 12.0 };
-                rows.text(Rect::new(30.0 + cw * 0.45, y, sub_w, OPT_H), &format!("{} · {}", p.ip, p.status), 12.5, 400, DIM, Align::Right);
+                // the name over its address (an IPv6 one is long), the state at the right
+                let right = if p.invited { cw - 60.0 } else { cw - 12.0 };
+                let state_w = 132.0;
+                let left_w = right - state_w - 8.0 - 30.0;
+                rows.text(Rect::new(30.0, y + 5.0, left_w, 22.0), &p.name, 14.0, 400, FG, Align::Left);
+                rows.text(Rect::new(30.0, y + 26.0, left_w, 17.0), &p.ip, 12.0, 400, DIM, Align::Left);
+                let state = if p.rtt.is_empty() { p.status.clone() } else { format!("{} · {}", p.status, p.rtt) };
+                rows.text(Rect::new(right - state_w, y, state_w, OPT_H), &state, 12.5, 400, DIM, Align::Right);
                 if p.invited {
                     let xr = Rect::new(cw - 52.0, y + 2.0, 48.0, OPT_H - 4.0);
                     rows.text(xr, "✕", 16.0, 400, if rows.is_pressed(&Hit::Forget(p.ip.clone(), p.port)) { FG } else { DIM }, Align::Center);

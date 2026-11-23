@@ -19,7 +19,7 @@ checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "lv1-surface"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
 ]
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "rtpmidi"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "socket2",
 ]
@@ -78,11 +78,11 @@ dependencies = [
 
 [[package]]
 name = "tunesync"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "tunesync-capi"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rtpmidi",
  "tunesync",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "tunesync-control"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lv1-surface",
  "rtpmidi",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "tunesync-host"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rtpmidi",
  "tunesync",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "tunesync-sim"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lv1-surface",
  "rtpmidi",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "tunesync-ui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "tunesync",
 ]

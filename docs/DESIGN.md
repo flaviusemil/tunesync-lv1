@@ -153,7 +153,9 @@ The window is about 480 px wide. From top to bottom:
 - **Several peers at once.** Several peers can join the same session, as AppleMIDI allows:
   one port pair, with each participant told apart by its SSRC. For example, a main and a
   backup playback rig.
-  - Each connected peer is listed with its name, address and when it was last heard.
+  - Each connected peer is listed with its name, its address under the name (an IPv6 one is
+    long), when it was last heard and the network round trip the clock sync measured
+    ("now · 4 ms").
   - A message from any peer applies, and the log names the peer it came from.
   - When main and backup send the same cue together, the 30 ms coalescing makes it one change.
 - **Auto-discovery, with no Bonjour install.** Windows 10 and 11 have DNS-SD built in
@@ -164,7 +166,10 @@ The window is about 480 px wide. From top to bottom:
   - **Browse:** list the Macs' own network sessions under "Found on the network", each with
     a Connect button. TuneSync then invites the Mac as the initiator, so the Mac only needs
     its session enabled. Connections made this way are remembered and re-invited when the Mac
-    comes back.
+    comes back. A remembered peer that is away is invited again every few seconds, so its
+    log line is written once ("waiting - no answer from its control port; will keep inviting
+    it"), and nothing more until it connects or the reason changes. Before 0.1.5 it added two
+    lines every 17 s, all night, pushing the cues out of the window's log and the 1 MB file.
   - Typing the host IP and port on the Mac still works as a fallback.
   - **IPv6 as well as IPv4.** The host's DNS-SD records carry its IPv6 link-local address
     next to the IPv4 one (Windows publishes both for its host name, and so does macOS), and

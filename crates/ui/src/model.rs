@@ -47,6 +47,8 @@ pub struct PeerRow {
     pub port: u16,
     /// "now", "3 s ago", "inviting", "waiting"
     pub status: String,
+    /// The network round trip clock sync measured, "4 ms"; "" until it has.
+    pub rtt: String,
     pub connected: bool,
     /// We invited it (Connect / remembered): it can be disconnected and forgotten.
     pub invited: bool,
@@ -99,6 +101,15 @@ pub fn ago(ms: u64) -> String {
     }
 }
 
+/// A network round trip: "4 ms", "<1 ms" on a fast wired network, "" when not measured.
+pub fn rtt(ms: Option<f64>) -> String {
+    match ms {
+        Some(r) if (0.0..1.0).contains(&r) => "<1 ms".into(),
+        Some(r) if r.is_finite() && r >= 1.0 => format!("{r:.0} ms"),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +123,9 @@ mod tests {
         assert_eq!(ago(500), "now");
         assert_eq!(ago(3200), "3 s ago");
         assert_eq!(ago(300_000), "5 min ago");
+        assert_eq!(rtt(Some(4.4)), "4 ms");
+        assert_eq!(rtt(Some(0.3)), "<1 ms");
+        assert_eq!(rtt(None), "");
+        assert_eq!(rtt(Some(f64::NAN)), "");
     }
 }

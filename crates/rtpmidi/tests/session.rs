@@ -574,6 +574,42 @@ fn we_invite() {
     assert!(until(500, || { no.step(); no.bye }), "close says goodbye to connected peers");
 }
 
+/// A remembered peer that is away all night: why it waits is logged once, its retries not
+/// at all, and its return is.
+#[test]
+fn an_away_peer_is_logged_once() {
+    let fake = Arc::new(AtomicU64::new(1000));
+    let (s, _, log, c) = session_with(Some(fake.clone()));
+    s.open(c).unwrap();
+    let mut away = FakeResponder::new();
+    away.silent = true;
+    s.invite("127.0.0.1", away.ctl.port, "Away");
+    let waiting = |s: &Session| s.peers()[0].state == PeerState::Waiting;
+    let mut rounds = 0;
+    for _ in 0..5 * 18 {
+        let was = waiting(&s);
+        until(3, || { s.poll(1); away.step(); false });
+        if waiting(&s) && !was {
+            rounds += 1;
+        }
+        fake.fetch_add(10000, Ordering::SeqCst);
+    }
+    assert!(rounds >= 4, "invited round after round ({rounds})");
+    let lines = |log: &Log| log.lock().unwrap().iter().filter(|l| l.contains("Away")).cloned().collect::<Vec<_>>();
+    assert_eq!(
+        lines(&log),
+        ["RTP-MIDI: Away (127.0.0.1) inviting", "RTP-MIDI: Away (127.0.0.1) waiting - no answer from its control port; will keep inviting it"]
+    );
+
+    // It comes back: connected is logged.
+    away.silent = false;
+    fake.fetch_add(6 * 10000, Ordering::SeqCst);
+    assert!(until(2000, || { s.poll(2); away.step(); s.peers()[0].state == PeerState::Connected }), "connected when it is back");
+    let all = log.lock().unwrap().clone();
+    assert!(all.last().is_some_and(|l| l.ends_with(" connected")), "its return is logged: {all:?}");
+    s.close();
+}
+
 /// Two sessions (TuneSync and a sender tool) talk to each other.
 #[test]
 fn session_to_session() {

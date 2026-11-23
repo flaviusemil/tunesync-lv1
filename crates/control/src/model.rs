@@ -30,6 +30,7 @@ pub fn build(rt: &Runtime, lv1_problem: Option<String>, local_ips: &[String]) ->
                 } else {
                     peer_state_name(p.state).to_string()
                 },
+                rtt: if connected { rtt(p.rtt_ms) } else { String::new() },
                 connected,
                 invited: p.invited,
             }

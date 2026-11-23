@@ -20,8 +20,8 @@ pub fn sample() -> Model {
             active: true,
             advert: "advertised".into(),
             peers: vec![
-                PeerRow { name: "Playback-Mac".into(), ip: "192.0.2.41".into(), port: 5004, status: "now".into(), connected: true, invited: false },
-                PeerRow { name: "Playback-Backup".into(), ip: "192.0.2.42".into(), port: 5004, status: "3 s ago".into(), connected: true, invited: true },
+                PeerRow { name: "Playback-Mac".into(), ip: "192.0.2.41".into(), port: 5004, status: "now".into(), rtt: "3 ms".into(), connected: true, invited: false },
+                PeerRow { name: "Playback-Backup".into(), ip: "192.0.2.42".into(), port: 5004, status: "3 s ago".into(), rtt: "5 ms".into(), connected: true, invited: true },
             ],
             found: vec![FoundRow { name: "Studio-MacBook".into(), ip: "192.0.2.77".into(), port: 5004, joined: false }],
             ..Default::default()
