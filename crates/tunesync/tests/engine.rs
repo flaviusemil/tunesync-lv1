@@ -319,28 +319,28 @@ fn tempo_by_cc() {
     assert_eq!(e.tick(&mut m, 100), None);
     assert!(log.snapshot().is_empty(), "LV1's tempo at load is its default, not the session's: not logged");
 
-    e.on_midi("RTP iPad", &cc(16, 21, 68), 1000);
+    e.on_midi("RTP iPad", &cc(16, 22, 28), 1000);
     assert_eq!(e.tick(&mut m, 1000), None, "set at once: nothing pending");
     assert_eq!(m.tempo, Some(128.0));
     assert_eq!(m.sets, 0, "no Tune touched");
     let l = log.snapshot();
-    assert_eq!(l[0].text, "RTP iPad CC 21 = 68 (128 BPM) ch 16");
+    assert_eq!(l[0].text, "RTP iPad CC 22 = 28 (128 BPM) ch 16");
     assert_eq!((l[1].level, l[1].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP iPad)"));
     assert_eq!(e.status().changes, 0, "the Tunes banner is not a tempo's");
 
     // a key cue with a tempo: both, one Tune pass
-    e.on_midi("RTP iPad", &cc(16, 21, 32), 2000);
+    e.on_midi("RTP iPad", &cc(16, 21, 92), 2000);
     e.on_midi("RTP iPad", &note(16, 57, 100), 2001);
     e.tick(&mut m, 2001);
     e.tick(&mut m, 2031);
     assert_eq!((m.tempo, m.key(0, 42, 0)), (Some(92.0), 13));
 
-    e.on_midi("RTP iPad", &cc(16, 21, 32), 3000);
+    e.on_midi("RTP iPad", &cc(16, 21, 92), 3000);
     e.tick(&mut m, 3000);
     assert!(log.snapshot().last().unwrap().text.contains("Tempo 92 BPM: already there"));
 
     m.tempo_stuck = true;
-    e.on_midi("RTP iPad", &cc(16, 21, 0), 4000);
+    e.on_midi("RTP iPad", &cc(16, 21, 60), 4000);
     e.tick(&mut m, 4000);
     let last = log.snapshot().last().unwrap().clone();
     assert_eq!((last.level, last.text.as_str()), (Level::Warn, "Tempo 60 BPM did not land: LV1 took the call, reads 92 BPM"));
@@ -385,7 +385,7 @@ fn tempo_follows_midi_clock() {
     assert_eq!((m.sets, e.status().last_midi_ms), (0, 0), "no Tune touched; clock is not a cue");
 
     // a CC tempo holds while the clock keeps its tempo...
-    e.on_midi("RTP Mac", &cc(16, 21, 64), t / 1000);
+    e.on_midi("RTP Mac", &cc(16, 22, 24), t / 1000);
     e.tick(&mut m, t / 1000);
     assert_eq!(m.tempo, Some(124.0));
     let t = clock(&e, &mut m, 128.0, 8, t + 19_531);

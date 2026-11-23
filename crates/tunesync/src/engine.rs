@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use crate::apply::{apply, default_ranges, discover, Mixer, TrackRange, TuneInstance};
 use crate::clock::{Clock, ClockFollower};
 use crate::log::{Level, LogRing};
-use crate::midi_map::{bpm_text, interpret, tempo_bpm, Coalescer, Intent, MsgKind, TEMPO_CC};
+use crate::midi_map::{bpm_text, interpret, Coalescer, Intent, MsgKind, TEMPO_CC, TEMPO_HIGH_CC};
 use crate::settings::Settings;
 use crate::tune::Spelling;
 
@@ -180,7 +180,7 @@ impl Engine {
                 level = Level::Info;
             } else if m.kind == MsgKind::Tempo {
                 // Not a Tune change: no scan, no window; set on the next tick.
-                st.tempo = Some((tempo_bpm(m.value), source.to_string()));
+                st.tempo = Some((f64::from(m.value), source.to_string()));
                 line = Some(format!("{source} {}", m.text));
                 level = Level::Info;
                 due = true;
@@ -238,7 +238,7 @@ impl Engine {
             if st.ignored > 0 && st.ignored_in(now_ms) == 0 {
                 let ch = if st.settings.channel == 0 { "any channel".to_string() } else { format!("ch {}", st.settings.channel) };
                 ignored_line = Some(format!(
-                    "ignored {} message{} (not a Note On, CC {} or CC {TEMPO_CC} on {ch}), last: {}",
+                    "ignored {} message{} (not a Note On, CC {}, {TEMPO_CC} or {TEMPO_HIGH_CC} on {ch}), last: {}",
                     st.ignored,
                     if st.ignored == 1 { "" } else { "s" },
                     st.settings.scale_cc,

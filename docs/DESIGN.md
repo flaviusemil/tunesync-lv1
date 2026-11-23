@@ -74,7 +74,8 @@ value and text.
 |---|---|
 | Note On, velocity > 0 | Key = the note's pitch class. Octave and velocity are ignored. |
 | CC *n* (the scale CC), value 0..10 | Scale = that Tune scale number. Values above 10 are ignored and logged. |
-| CC 21, value 0..127 | LV1's tempo = 60 + value BPM. A scale CC set to 21 wins. |
+| CC 21, value 40..127 | LV1's tempo = the value in BPM. Below 40 (LV1's floor) is ignored and logged. |
+| CC 22, value 0..127 | LV1's tempo = 100 + the value (faster songs: 28 = 128 BPM). A scale CC set to 21 or 22 wins. |
 | MIDI clock (F8, FA, FB, FC), any channel | LV1's tempo follows it: see **Tempo** below. |
 | Anything else | Ignored, including Note Off and messages on other channels. |
 
@@ -129,15 +130,20 @@ MIDI clock (`crate::clock`):
 - It is reported when two estimates in a row agree within 0.5 BPM, and only if it is new: the
   first since the clock started (Start, or ticks after a 1 s gap), or 0.5 BPM or more from the
   last one reported. Whole BPM when within 0.1 of one, else to 0.1. Jitter never nudges LV1,
-  and a tempo set another way (CC 21, a hand on LV1) holds until the clock's tempo changes.
+  and a tempo set another way (CC 21/22, a hand on LV1) holds until the clock's tempo changes.
 - Stop is ignored (many rigs keep ticking while stopped). Continue measures afresh. Outside
   40-300 BPM nothing is reported. Clock is never logged per tick and does not count as a cue.
 
 LV1's own MIDI control-surface driver has an undocumented `SyncToMIDITempo` option; a Waves
 forum user reported it drifting 4-5 BPM. TuneSync's follower is separate and does not use it.
 
-Proven on the rig 2026-11-23 (0.1.6 test, CC 21 only): `CC 21 = 68` -> `[ok] Tempo 128 BPM
-(was 127)`, read back 28 ms after the CC. TuneSync only logs the tempo it sets: LV1's tempo
+**Tempo CCs (Flavius, 2026-11-23).** The value is the BPM as typed in the playback app, with
+no sums: songs go below 60 BPM, so an offset was out. CC 21 covers 40-127 (LV1's floor is 40),
+CC 22 adds 100 for 100-227. Prime (Loop Community) sends no MIDI clock, only note, CC and
+program-change cues, so with Prime the tempo always comes from these CCs.
+
+Proven on the rig 2026-11-23 (0.1.6 test build, whose CC 21 was then 60 + value): `CC 21 =
+68` -> `[ok] Tempo 128 BPM (was 127)`, read back 28 ms after the CC. TuneSync only logs the tempo it sets: LV1's tempo
 when TuneSync loads is its default 120, because the session's tempo loads later.
 
 ## Settings window

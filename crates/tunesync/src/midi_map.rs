@@ -4,22 +4,28 @@
 //! ```text
 //!   Note On (velocity > 0) on the channel   key = the note's pitch class
 //!   CC <scale_cc> on the channel, 0..10     scale = that Tune scale number
-//!   CC 21 on the channel, 0..127            LV1's tempo = 60 + value BPM
+//!   CC 21 on the channel, 40..127           LV1's tempo = value BPM
+//!   CC 22 on the channel, 0..127            LV1's tempo = 100 + value BPM
 //!   MIDI clock (any channel, any source)    LV1's tempo follows it (crate::clock)
 //!   anything else                           ignored (Note Off, other channels, ...)
 //! ```
 use crate::tune::{pitch_class_name, scale_name, NUM_SCALES};
 
-/// The CC that sets LV1's tempo exactly, on the configured channel: one message per song,
-/// like the key. MIDI clock is followed as well ([`crate::clock`]); this overrides it until
-/// the clock's tempo changes. A `scale_cc` set to the same number wins.
+/// The CCs that set LV1's tempo exactly, on the configured channel: one message per song,
+/// like the key. The value is the BPM as typed in the playback app, no sums: CC 21 = the BPM
+/// (40..127; LV1's tempo starts at 40), CC 22 = the BPM - 100 for faster songs (100..227:
+/// 128 BPM is CC 22 = 28). MIDI clock is followed as well ([`crate::clock`]); a CC tempo
+/// holds until the clock's tempo changes. A `scale_cc` set to the same number wins.
 pub const TEMPO_CC: u8 = 21;
-/// [`TEMPO_CC`]'s value 0..127 is 60..187 BPM.
-pub const TEMPO_BASE_BPM: u8 = 60;
+pub const TEMPO_HIGH_CC: u8 = 22;
 
-/// The tempo a [`TEMPO_CC`] value asks for.
-pub fn tempo_bpm(value: u8) -> f64 {
-    f64::from(TEMPO_BASE_BPM) + f64::from(value)
+/// The BPM a tempo CC asks for, `None` when it is not one or the value is below LV1's 40.
+pub fn tempo_bpm(cc: u8, value: u8) -> Option<u8> {
+    match cc {
+        TEMPO_CC => (value >= crate::clock::MIN_BPM as u8).then_some(value),
+        TEMPO_HIGH_CC => Some(100 + value),
+        _ => None,
+    }
 }
 
 /// "128", "128.5": a tempo for the log.
@@ -62,7 +68,7 @@ pub enum MsgKind {
     Ignored,
     Key,
     Scale,
-    /// [`TEMPO_CC`]: `value` is the CC value ([`tempo_bpm`]).
+    /// [`TEMPO_CC`] / [`TEMPO_HIGH_CC`]: `value` is the BPM ([`tempo_bpm`]).
     Tempo,
     OutOfRange,
 }
@@ -70,7 +76,8 @@ pub enum MsgKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Interpreted {
     pub kind: MsgKind,
-    /// The pitch class for Key, the scale for Scale, the raw value for Tempo and OutOfRange.
+    /// The pitch class for Key, the scale for Scale, the BPM for Tempo, the raw value for
+    /// OutOfRange.
     pub value: u8,
     /// The message for the log, e.g. "Note On 57 (A) vel 100 ch 16"; empty for system
     /// messages (clock, MTC, SysEx), which are never logged.
@@ -121,9 +128,15 @@ pub fn interpret(msg: &[u8], channel: u8, scale_cc: u8) -> Interpreted {
             text: format!("Note On {} ({}) vel {} ch {ch}", msg[1], pitch_class_name(pc), msg[2]),
         };
     }
-    if msg[1] == TEMPO_CC && msg[1] != scale_cc {
-        let bpm = tempo_bpm(msg[2]);
-        return Interpreted { kind: MsgKind::Tempo, value: msg[2], text: format!("CC {} = {} ({} BPM) ch {ch}", msg[1], msg[2], bpm_text(bpm)) };
+    if (msg[1] == TEMPO_CC || msg[1] == TEMPO_HIGH_CC) && msg[1] != scale_cc {
+        return match tempo_bpm(msg[1], msg[2]) {
+            Some(b) => Interpreted { kind: MsgKind::Tempo, value: b, text: format!("CC {} = {} ({b} BPM) ch {ch}", msg[1], msg[2]) },
+            None => Interpreted {
+                kind: MsgKind::OutOfRange,
+                value: msg[2],
+                text: format!("CC {} = {} ch {ch} ignored: LV1's tempo starts at 40 BPM", msg[1], msg[2]),
+            },
+        };
     }
     if msg[1] != scale_cc {
         return Interpreted::ignored(text);
@@ -229,13 +242,18 @@ mod tests {
         assert_eq!(m.value, 3);
         assert!(m.text.contains("Natural Minor"));
         assert_eq!(i(&cc(16, 20, 14)).kind, MsgKind::OutOfRange);
-        assert_eq!(i(&cc(16, 22, 3)).kind, MsgKind::Ignored);
-        let t = i(&cc(16, 21, 68));
-        assert_eq!((t.kind, t.value), (MsgKind::Tempo, 68));
-        assert_eq!(t.text, "CC 21 = 68 (128 BPM) ch 16");
+        assert_eq!(i(&cc(16, 23, 3)).kind, MsgKind::Ignored);
+        let t = i(&cc(16, 21, 56));
+        assert_eq!((t.kind, t.value, t.text.as_str()), (MsgKind::Tempo, 56, "CC 21 = 56 (56 BPM) ch 16"), "a slow ballad");
+        let t = i(&cc(16, 22, 28));
+        assert_eq!((t.kind, t.value, t.text.as_str()), (MsgKind::Tempo, 128, "CC 22 = 28 (128 BPM) ch 16"));
+        let slow = i(&cc(16, 21, 30));
+        assert_eq!(slow.kind, MsgKind::OutOfRange);
+        assert!(slow.text.ends_with("ignored: LV1's tempo starts at 40 BPM"), "{}", slow.text);
         assert_eq!(i(&cc(15, 21, 68)).kind, MsgKind::Ignored, "tempo is on our channel only");
         assert_eq!(interpret(&cc(16, 21, 3), 16, 21).kind, MsgKind::Scale, "a scale CC of 21 wins");
-        assert_eq!((tempo_bpm(0), tempo_bpm(127)), (60.0, 187.0));
+        assert_eq!((tempo_bpm(21, 40), tempo_bpm(21, 127), tempo_bpm(21, 39)), (Some(40), Some(127), None));
+        assert_eq!((tempo_bpm(22, 0), tempo_bpm(22, 127), tempo_bpm(20, 5)), (Some(100), Some(227), None));
         assert_eq!((bpm_text(128.0), bpm_text(127.96), bpm_text(92.5)), ("128".into(), "128".into(), "92.5".into()));
         assert_eq!(interpret(&cc(16, 7, 3), 16, 7).kind, MsgKind::Scale, "configurable cc");
         assert_eq!(i(&[0x9F, 57]).kind, MsgKind::Ignored, "truncated");

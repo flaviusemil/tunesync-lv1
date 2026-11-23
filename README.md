@@ -37,7 +37,7 @@ snapshots and no Bonjour installation.
   group and FX return, including instances added during the show.
 - **Scale by CC.** A control change (CC 20 by default) selects any of Tune's 11 scales.
 - **Tempo too.** LV1's system tempo, which its tempo-synced plug-ins follow, follows the
-  playback rig's MIDI clock, or is set exactly by CC 21.
+  playback rig's MIDI clock, or is set exactly by a CC: the value is the BPM.
 - **Respects Lock.** Instances switched to *Lock* on Tune's own Receive button are never touched.
 - **Keeps the spelling.** A Tune showing E♭ stays a flat key; C♯ stays a sharp key.
 - **Local or network MIDI.** Any MIDI input on the LV1 computer, opened by name and reopened
@@ -92,7 +92,8 @@ Send these on the configured MIDI channel (16 by default) at the top of each son
 |---|---|
 | Note On, any octave, velocity above 0 | Key = the note's pitch class |
 | CC 20, value 0–10 | Scale (table below); other values are ignored and logged |
-| CC 21, value 0–127 | LV1's tempo = 60 + value BPM (60–187), for example 68 = 128 BPM |
+| CC 21, value 40–127 | LV1's tempo = the value in BPM, for example 56 = 56 BPM |
+| CC 22, value 0–127 | LV1's tempo = 100 + the value, for faster songs: 28 = 128 BPM |
 
 | Value | Scale | Value | Scale |
 |---|---|---|---|
@@ -114,7 +115,9 @@ the settings window, which also offers **Apply now** for checking the setup at s
 steady for about two beats, and again whenever the clock's tempo changes by half a BPM or more.
 Over RTP-MIDI the clock is timed on the sending computer's own timestamps, so Wi-Fi jitter does
 not reach the tempo. When a main and a backup rig both send clock, the first one is followed. A
-CC 21 tempo holds until the clock's tempo changes or the clock starts again.
+tempo set by CC holds until the clock's tempo changes or the clock starts again. Apps that
+send no clock (Loop Community's Prime, for example) set the tempo with CC 21 or CC 22 in each
+song's start cue, next to the key note and the scale CC.
 
 ### Connecting a Mac over the network
 
