@@ -55,6 +55,9 @@ impl Color {
     pub fn a(&self) -> u8 {
         self.0 as u8
     }
+    pub const fn with_alpha(self, a: u8) -> Color {
+        Color((self.0 & 0xFFFF_FF00) | a as u32)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +83,8 @@ pub enum Item {
     Text { r: Rect, text: String, size: f32, weight: u16, color: Color, align: Align, font: Font },
     /// A filled circle (status dots), with an optional soft glow.
     Dot { cx: f32, cy: f32, radius: f32, color: Color, glow: bool },
+    /// A circle's outline, `width` wide (a connected dot's ripple).
+    Ring { cx: f32, cy: f32, radius: f32, width: f32, color: Color },
     /// Clip what follows to `r` until the matching `Unclip` (scrolling lists).
     Clip { r: Rect },
     Unclip,

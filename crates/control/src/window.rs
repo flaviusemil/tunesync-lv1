@@ -48,6 +48,9 @@ use tunesync_ui::view::{layout, Command, Frame, View, DEFAULT_HEIGHT, MIN_HEIGHT
 const WM_APP_SHOW: u32 = WM_APP + 1;
 const WM_APP_QUIT: u32 = WM_APP + 2;
 const TIMER_REFRESH: usize = 1;
+/// Runs only while the frame has something moving (a connected peer's dot), ~30 fps.
+const TIMER_ANIM: usize = 2;
+const ANIM_MS: u32 = 33;
 const EDIT_ID: usize = 100;
 const CF_UNICODETEXT: u32 = 13;
 const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
@@ -177,6 +180,8 @@ struct State {
     edit_shown: bool,
     edit_text: String,
     captured: bool,
+    /// TIMER_ANIM is running.
+    anim: bool,
 }
 
 impl State {
@@ -198,8 +203,23 @@ impl State {
     }
     fn relayout(&mut self, hwnd: HWND) {
         let (w, h) = self.size(hwnd);
+        self.view.now_ms = self.rt.now_ms();
         self.frame = layout(&self.model, &self.view, w, h);
         self.place_edit();
+        self.animate(hwnd, self.frame.animating);
+    }
+    /// Start or stop the frame timer.
+    fn animate(&mut self, hwnd: HWND, on: bool) {
+        if on != self.anim {
+            unsafe {
+                if on {
+                    SetTimer(hwnd, TIMER_ANIM, ANIM_MS, None);
+                } else {
+                    let _ = KillTimer(hwnd, TIMER_ANIM);
+                }
+            }
+            self.anim = on;
+        }
     }
     fn place_edit(&mut self) {
         match &self.frame.edit {
@@ -351,6 +371,10 @@ impl State {
                         b.SetColor(&color(c.0));
                         t.FillEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: *cx, y: *cy }, radiusX: *radius, radiusY: *radius }, &b);
                     }
+                    Item::Ring { cx, cy, radius, width, color: c } => {
+                        b.SetColor(&color(c.0));
+                        t.DrawEllipse(&D2D1_ELLIPSE { point: D2D_POINT_2F { x: *cx, y: *cy }, radiusX: *radius, radiusY: *radius }, &b, *width, None);
+                    }
                     Item::Clip { r } => {
                         t.PushAxisAlignedClip(&D2D_RECT_F { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() }, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                     }
@@ -461,6 +485,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let r = &*(lp.0 as *const RECT);
             let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(hwnd, None, false);
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == TIMER_ANIM => {
+            // Hidden or minimised: no paint would follow, so stop; the next paint restarts it.
+            if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+                st.animate(hwnd, false);
+            } else {
+                let _ = InvalidateRect(hwnd, None, false);
+            }
             LRESULT(0)
         }
         WM_TIMER => {
@@ -692,6 +725,7 @@ fn run(rt: Arc<Runtime>, problem: Problem, hwnd_out: Arc<AtomicIsize>) {
             edit_shown: false,
             edit_text: String::new(),
             captured: false,
+            anim: false,
             rt,
             problem,
         });

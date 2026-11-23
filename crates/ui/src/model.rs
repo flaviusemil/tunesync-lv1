@@ -49,6 +49,8 @@ pub struct PeerRow {
     pub status: String,
     /// The network round trip clock sync measured, "4 ms"; "" until it has.
     pub rtt: String,
+    /// When MIDI last came from it, on the clock of [`crate::view::View::now_ms`]; 0 = never.
+    pub midi_at_ms: u64,
     pub connected: bool,
     /// We invited it (Connect / remembered): it can be disconnected and forgotten.
     pub invited: bool,

@@ -155,7 +155,11 @@ The window is about 480 px wide. From top to bottom:
   backup playback rig.
   - Each connected peer is listed with its name, its address under the name (an IPv6 one is
     long), when it was last heard and the network round trip the clock sync measured
-    ("now · 4 ms").
+    ("now · 4 ms"). A connected peer's dot breathes (2.4 s), and each MIDI message from it
+    sends a ripple out of the dot, so a cue can be seen arriving from a given rig. The window
+    repaints at ~30 fps only while such a dot is on screen (`Frame::animating`); otherwise it
+    keeps its 250 ms model refresh. To time the ripple, the RTP-MIDI session runs on the
+    host's `now_ms()` clock.
   - A message from any peer applies, and the log names the peer it came from.
   - When main and backup send the same cue together, the 30 ms coalescing makes it one change.
 - **Auto-discovery, with no Bonjour install.** Windows 10 and 11 have DNS-SD built in

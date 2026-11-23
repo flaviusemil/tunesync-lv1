@@ -31,6 +31,7 @@ pub fn build(rt: &Runtime, lv1_problem: Option<String>, local_ips: &[String]) ->
                     peer_state_name(p.state).to_string()
                 },
                 rtt: if connected { rtt(p.rtt_ms) } else { String::new() },
+                midi_at_ms: p.last_midi_ms, // the session runs on now_ms()'s clock
                 connected,
                 invited: p.invited,
             }

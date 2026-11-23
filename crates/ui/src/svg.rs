@@ -60,6 +60,9 @@ pub fn to_svg(f: &Frame, w: f32, h: f32) -> String {
                 }
                 o += &format!("<circle cx=\"{cx}\" cy=\"{cy}\" r=\"{radius}\" fill=\"{}\"/>\n", col(*color));
             }
+            Item::Ring { cx, cy, radius, width, color } => {
+                o += &format!("<circle cx=\"{cx}\" cy=\"{cy}\" r=\"{radius}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{width}\"/>\n", col(*color));
+            }
             Item::Clip { r } => {
                 clips += 1;
                 open += 1;

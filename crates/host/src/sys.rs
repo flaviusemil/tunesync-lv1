@@ -6,10 +6,17 @@ use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+static T0: OnceLock<Instant> = OnceLock::new();
+
 /// The steady millisecond clock every part of TuneSync uses (never 0).
 pub fn now_ms() -> u64 {
-    static T0: OnceLock<Instant> = OnceLock::new();
     T0.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+/// The same clock in 100 us units, for the RTP-MIDI session: its times in milliseconds
+/// (`now_10k() / 10`) are then `now_ms()` times, so the window can animate on them.
+pub fn now_10k() -> u64 {
+    T0.get_or_init(Instant::now).elapsed().as_micros() as u64 / 100 + 10
 }
 
 /// Local wall-clock time: (year, month, day, hour, minute, second, millisecond).

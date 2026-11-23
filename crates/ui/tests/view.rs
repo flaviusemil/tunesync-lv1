@@ -13,7 +13,7 @@ fn model() -> Model {
         rtp: RtpModel {
             open: true,
             found: vec![FoundRow { name: "Studio".into(), ip: "10.0.0.7".into(), port: 5004, joined: false }],
-            peers: vec![PeerRow { name: "Main".into(), ip: "10.0.0.5".into(), port: 5004, status: "now".into(), rtt: "4 ms".into(), connected: true, invited: true }],
+            peers: vec![PeerRow { name: "Main".into(), ip: "10.0.0.5".into(), port: 5004, status: "now".into(), rtt: "4 ms".into(), connected: true, invited: true, midi_at_ms: 0 }],
             ..Default::default()
         },
         ..Default::default()
@@ -96,6 +96,36 @@ fn rtp_sheet() {
     assert_eq!(tap(&mut v, &m, &Hit::Done), vec![Command::SetRtpPort(5104)]);
     assert_eq!(v.sheet, Some(Sheet::Rtp), "back to the RTP sheet");
     assert!(v.back() && v.sheet.is_none(), "Escape closes the sheet");
+}
+
+/// A connected peer's dot breathes while the RTP sheet shows it, and MIDI from it sends
+/// a ripple out; nothing moves (no frame timer) otherwise.
+#[test]
+fn a_connected_dot_moves() {
+    use tunesync_ui::draw::Item;
+    let mut m = model();
+    let mut v = View::new();
+    let rings = |f: &Frame| f.items.iter().filter(|i| matches!(i, Item::Ring { .. })).count();
+    v.now_ms = 10_000;
+    assert!(!layout(&m, &v, WIDTH, DEFAULT_HEIGHT).animating, "the page alone is still");
+    v.sheet = Some(Sheet::Rtp);
+    let f = layout(&m, &v, WIDTH, DEFAULT_HEIGHT);
+    assert!(f.animating && rings(&f) == 0, "connected: breathing, no ripple without MIDI");
+    let halo = |f: &Frame| f.items.iter().find_map(|i| match i { Item::Dot { radius, color, glow: false, .. } if color.a() < 0xff => Some(*radius), _ => None });
+    let a = halo(&f);
+    v.now_ms += 1200;
+    assert_ne!(halo(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT)), a, "the halo changes over time");
+
+    m.rtp.peers[0].midi_at_ms = v.now_ms - 100;
+    assert_eq!(rings(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT)), 1, "MIDI just arrived: a ripple");
+    v.now_ms += 2000;
+    assert_eq!(rings(&layout(&m, &v, WIDTH, DEFAULT_HEIGHT)), 0, "the ripple is over");
+
+    m.rtp.peers[0].connected = false;
+    assert!(!layout(&m, &v, WIDTH, DEFAULT_HEIGHT).animating, "a waiting peer's dot is still");
+    m.rtp.peers[0].connected = true;
+    v.now_ms = 0;
+    assert!(!layout(&m, &v, WIDTH, DEFAULT_HEIGHT).animating, "no clock (previews): still");
 }
 
 #[test]

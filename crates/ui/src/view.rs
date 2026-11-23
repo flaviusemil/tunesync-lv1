@@ -23,6 +23,12 @@ const TILE_H: f32 = 56.0;
 const ROW_H: f32 = 44.0;
 const ROW_GAP: f32 = 6.0;
 const OPT_H: f32 = 48.0;
+/// Status dots.
+const DOT_R: f32 = 4.5;
+/// A connected peer's dot breathes once in this time...
+const BREATH_MS: u64 = 2400;
+/// ...and MIDI from it sends a ripple out for this long.
+const RIPPLE_MS: u64 = 900;
 
 /// What the shell must do.
 #[derive(Clone, Debug, PartialEq)]
@@ -115,6 +121,8 @@ pub struct Frame {
     pub items: Vec<Item>,
     pub hits: Vec<(Rect, Hit)>,
     pub edit: Option<(Rect, String)>,
+    /// Something on it moves: lay out and paint again in a frame's time (about 30 ms).
+    pub animating: bool,
     /// How far each list can scroll, for clamping.
     tunes_max: f32,
     sheet_max: f32,
@@ -144,6 +152,9 @@ pub struct View {
     pub pick_scale: Option<u8>,
     pub tunes_scroll: f32,
     pub sheet_scroll: f32,
+    /// The host's clock, set before each layout: what moves is drawn for this moment, and
+    /// the model's times (`PeerRow::midi_at_ms`) are on it. 0 = nothing moves (previews, tests).
+    pub now_ms: u64,
     drag: Option<Drag>,
     /// The scrolling list under a press on one of its rows.
     list_under: Option<Hit>,
@@ -355,7 +366,7 @@ impl B<'_> {
         self.text(r, &t.to_uppercase(), 11.0, 600, DIM, Align::Left);
     }
     fn dot(&mut self, cx: f32, cy: f32, color: Color, glow: bool) {
-        self.f.items.push(Item::Dot { cx, cy, radius: 4.5, color, glow });
+        self.f.items.push(Item::Dot { cx, cy, radius: DOT_R, color, glow });
     }
     fn hit(&mut self, r: Rect, h: Hit) {
         self.f.hits.push((r, h));
@@ -379,10 +390,35 @@ impl B<'_> {
     }
     /// A small button (Rescan, Full log, Copy).
     fn button(&mut self, r: Rect, t: &str, h: Hit, accent: bool) {
+        self.button_in(r, r, t, h, accent);
+    }
+    /// A button drawn at `r` that takes taps anywhere in the larger `tap`.
+    fn button_in(&mut self, r: Rect, tap: Rect, t: &str, h: Hit, accent: bool) {
         let fill = if self.is_pressed(&h) { PRESSED } else if accent { ACCD } else { PANEL2 };
         self.bx(r, 8.0, fill, Some(if accent { ACC } else { LINE }));
         self.text(r, t, 13.0, if accent { 600 } else { 400 }, FG, Align::Center);
-        self.hit(r, h);
+        self.hit(tap, h);
+    }
+    /// A peer's status dot. Connected, it breathes, and each MIDI message from the peer
+    /// sends a ripple out of it.
+    fn peer_dot(&mut self, cx: f32, cy: f32, connected: bool, midi_at_ms: u64) {
+        let now = self.v.now_ms;
+        if !connected || now == 0 {
+            self.dot(cx, cy, if connected { ACC } else { IDLE_DOT }, connected);
+            return;
+        }
+        let tau = std::f32::consts::TAU;
+        let b = 0.5 - 0.5 * ((now % BREATH_MS) as f32 / BREATH_MS as f32 * tau).cos(); // 0 -> 1 -> 0
+        let halo = Item::Dot { cx, cy, radius: DOT_R * (1.45 + 0.55 * b), color: ACC.with_alpha((0x1c as f32 + 0x44 as f32 * b) as u8), glow: false };
+        self.f.items.push(halo);
+        let age = now.saturating_sub(midi_at_ms);
+        if midi_at_ms != 0 && age < RIPPLE_MS {
+            let t = age as f32 / RIPPLE_MS as f32;
+            let out = 1.0 - (1.0 - t).powi(3); // fast, then settling
+            self.f.items.push(Item::Ring { cx, cy, radius: DOT_R + 10.0 * out, width: 1.5, color: ACC.with_alpha((0xd0 as f32 * (1.0 - t)) as u8) });
+        }
+        self.f.items.push(Item::Dot { cx, cy, radius: DOT_R, color: ACC, glow: false });
+        self.f.animating = true;
     }
     /// A 48 DIP option row in a sheet.
     fn option(&mut self, r: Rect, t: &str, sub: &str, on: bool, h: Hit) {
@@ -635,7 +671,7 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
             for p in &m.rtp.peers {
                 let r = Rect::new(0.0, y, cw, OPT_H);
                 rows.bx(r, 8.0, PANEL, Some(LINE));
-                rows.dot(16.5, y + OPT_H / 2.0, if p.connected { ACC } else { IDLE_DOT }, p.connected);
+                rows.peer_dot(16.5, y + OPT_H / 2.0, p.connected, p.midi_at_ms);
                 // the name over its address (an IPv6 one is long), the state at the right
                 let right = if p.invited { cw - 60.0 } else { cw - 12.0 };
                 let state_w = 132.0;
@@ -664,8 +700,9 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
                 rows.bx(r, 8.0, PANEL, Some(LINE));
                 rows.text(Rect::new(12.0, y, cw - 140.0, OPT_H), &f.name, 14.0, 400, FG, Align::Left);
                 let h = Hit::Connect(f.ip.clone(), f.port, f.name.clone());
-                let br = Rect::new(cw - 110.0, y + 6.0, 100.0, OPT_H - 12.0);
-                rows.button(br, "Connect", h, true);
+                // a compact button; the whole right end of the row takes the tap
+                let br = Rect::new(cw - 96.0, y + (OPT_H - 30.0) / 2.0, 86.0, 30.0);
+                rows.button_in(br, Rect::new(cw - 112.0, y, 112.0, OPT_H), "Connect", h, true);
                 y += OPT_H + ROW_GAP;
             }
             let ips = if m.local_ips.is_empty() { "this PC's address".to_string() } else { m.local_ips.join(" or ") };
@@ -805,6 +842,7 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
     b.hit(body, Hit::SheetList);
     let dx = body.x;
     let dy = body.y - scroll;
+    b.f.animating |= rows.f.animating;
     for it in rows.f.items {
         b.f.items.push(shift(it, dx, dy));
     }
@@ -836,6 +874,7 @@ fn shift(it: Item, dx: f32, dy: f32) -> Item {
         Item::Box { r, radius, fill, stroke } => Item::Box { r: mv(r), radius, fill, stroke },
         Item::Text { r, text, size, weight, color, align, font } => Item::Text { r: mv(r), text, size, weight, color, align, font },
         Item::Dot { cx, cy, radius, color, glow } => Item::Dot { cx: cx + dx, cy: cy + dy, radius, color, glow },
+        Item::Ring { cx, cy, radius, width, color } => Item::Ring { cx: cx + dx, cy: cy + dy, radius, width, color },
         Item::Clip { r } => Item::Clip { r: mv(r) },
         Item::Unclip => Item::Unclip,
     }

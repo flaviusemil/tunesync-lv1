@@ -9,7 +9,7 @@ use rtpmidi::session::{PeerView, Session, SessionConfig};
 use tunesync::settings::Peer;
 
 use crate::dnssd::{Dnssd, FoundSession};
-use crate::sys::{now_ms, Worker};
+use crate::sys::{now_10k, now_ms, Worker};
 
 pub type LogFn = Arc<dyn Fn(&str, bool) + Send + Sync>;
 pub type MidiFn = Arc<dyn Fn(&str, &[u8]) + Send + Sync>;
@@ -27,7 +27,7 @@ pub struct RtpView {
     pub advert: String,
     pub peers: Vec<PeerView>,
     pub found: Vec<FoundSession>,
-    /// The clock `PeerView`'s times are on.
+    /// The clock `PeerView`'s times are on (`now_ms()`'s).
     pub session_now_ms: u64,
     /// now_ms() of the last MIDI message, 0 = none.
     pub last_midi_ms: u64,
@@ -148,7 +148,7 @@ fn run(sh: Arc<Shared>) {
             }
             let mut err = String::new();
             if enabled {
-                match sh.session.open(SessionConfig { name: name.clone(), port, ..Default::default() }) {
+                match sh.session.open(SessionConfig { name: name.clone(), port, clock10k: Some(Arc::new(now_10k)), ..Default::default() }) {
                     Ok(()) => {
                         (sh.log)(&format!("RTP-MIDI: session \"{name}\" open on UDP {port}/{}", port + 1), false);
                         sh.dnssd.lock().unwrap_or_else(|e| e.into_inner()).start(&name, port, sh.log.clone());
