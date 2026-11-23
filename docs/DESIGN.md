@@ -166,6 +166,12 @@ The window is about 480 px wide. From top to bottom:
     its session enabled. Connections made this way are remembered and re-invited when the Mac
     comes back.
   - Typing the host IP and port on the Mac still works as a fallback.
+  - **IPv6 as well as IPv4.** The host's DNS-SD records carry its IPv6 link-local address
+    next to the IPv4 one (Windows publishes both for its host name, and so does macOS), and
+    macOS's network MIDI connects to a Directory entry over IPv6. So both UDP sockets are
+    dual stack (`[::]:5004` with IPV6_V6ONLY off, through `socket2`), falling back to IPv4
+    only on a system without IPv6. IPv4 peers keep their plain address (`192.0.2.42`, not
+    `::ffff:…`); a link-local IPv6 peer keeps its interface (`fe80::…%3`) so it can be answered.
   - If the Windows API misbehaves on a host, there are two other routes: preprobe's own mDNS
     code (`discover.*`, which browses with legacy-unicast queries) and a small responder of
     our own. Not tested yet on the LV1 hosts.
@@ -191,9 +197,17 @@ Ch 1-3 (slot 2):
 | Settings window | opens from Setup -> Control Surfaces (LV1 lists it under Controls), Direct2D text crisp at 175 %, live Tunes list with Rcv/Lock |
 | Surface re-created | loading another session destroyed and re-created the surface: stop + start in 32 ms, UDP 5004 re-bound |
 
-Not yet checked: a Mac joining over the network (the rig network is not routable from the
-build server; a Mac on the desk network is the next step), DNS-SD browsing, the stereo Tune
-(`LVLS`).
+**A Mac over the network (2026-11-23, macOS 12.7.6, Audio MIDI Setup's network session, both
+on Wi-Fi, RTT 2-8 ms):** the Mac listed "TuneSync" under Directory (DNS-SD advertising works)
+and TuneSync listed the Mac under Found on the network (browsing works). TuneSync inviting the
+Mac worked once the Mac's session accepted "Anyone" (refused before, retried every 5 s), and a
+goodbye from the Mac was followed by TuneSync's re-invite 30 s later, as designed. The Mac
+connecting to TuneSync from Directory timed out every time in 0.1.3: the Mac used the PC's
+IPv6 link-local address (DNS-SD hands out both) and TuneSync listened on IPv4 only. Fixed in
+0.1.4 (dual-stack sockets, above). The Mac shows latency 0 for a session TuneSync started
+(TuneSync runs the clock sync then; its CK timestamps are per spec).
+
+Not yet checked: the stereo Tune (`LVLS`).
 
 ## Structure
 

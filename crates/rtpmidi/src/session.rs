@@ -23,7 +23,7 @@
 //! network. Callbacks run on the poll thread, outside the session's lock.
 use std::collections::HashSet;
 use std::io::ErrorKind;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -208,6 +208,51 @@ struct Sockets {
     ctl: UdpSocket,
     data: UdpSocket,
     port: u16,
+    /// Both sockets take IPv6 as well as IPv4 (IPv4 peers arrive as ::ffff:a.b.c.d).
+    dual: bool,
+}
+
+/// A UDP socket on [::]:port that takes IPv4 too. Needed because a host advertised over
+/// DNS-SD is published with its IPv6 link-local address next to its IPv4 one (Windows and
+/// macOS both do this), and macOS's network MIDI then connects over IPv6.
+fn bind_dual(port: u16) -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let s = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    s.set_only_v6(false)?;
+    s.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)).into())?;
+    Ok(s.into())
+}
+
+/// How a peer's address is kept: "192.0.2.42" (also for an IPv4 peer that reached a
+/// dual-stack socket as ::ffff:192.0.2.42), "fe80::1%3" for a link-local IPv6 peer (the
+/// scope is the interface, needed to answer it).
+fn addr_text(a: &SocketAddr) -> String {
+    match a {
+        SocketAddr::V4(a) => a.ip().to_string(),
+        SocketAddr::V6(a) => match a.ip().to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None if a.scope_id() != 0 => format!("{}%{}", a.ip(), a.scope_id()),
+            None => a.ip().to_string(),
+        },
+    }
+}
+
+/// Where to send to a peer address in that form, from dual-stack sockets or IPv4-only ones.
+fn send_addr(ip: &str, port: u16, dual: bool) -> Option<SocketAddr> {
+    if port == 0 {
+        return None;
+    }
+    if let Ok(v4) = ip.parse::<Ipv4Addr>() {
+        return Some(if dual { SocketAddrV6::new(v4.to_ipv6_mapped(), port, 0, 0).into() } else { SocketAddrV4::new(v4, port).into() });
+    }
+    if !dual {
+        return None;
+    }
+    let (a, scope) = match ip.split_once('%') {
+        Some((a, sc)) => (a, sc.parse().ok()?),
+        None => (ip, 0),
+    };
+    Some(SocketAddrV6::new(a.parse().ok()?, port, 0, scope).into())
 }
 
 struct Inner {
@@ -366,17 +411,25 @@ impl Session {
         self.inner().now10k() / 10
     }
 
-    /// Binds control on cfg.port and data on cfg.port + 1, every interface.
+    /// Binds control on cfg.port and data on cfg.port + 1, every interface, IPv6 and IPv4.
     pub fn open(&self, cfg: SessionConfig) -> Result<(), String> {
         self.close();
         if cfg.port == 0 || cfg.port == 65535 {
             return Err("bad UDP port".into());
         }
-        let bind = |port: u16| {
+        let bind4 = |port: u16| {
             UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).map_err(|e| format!("UDP port {port} is in use or not allowed ({e})"))
         };
-        let ctl = bind(cfg.port)?;
-        let data = bind(cfg.port + 1)?;
+        // Dual stack when the system has IPv6; else IPv4 only. (The first statement ends
+        // before the fallback binds, so a half-made dual pair is closed by then.)
+        let pair = match (bind_dual(cfg.port), bind_dual(cfg.port + 1)) {
+            (Ok(c), Ok(d)) => Some((c, d)),
+            _ => None,
+        };
+        let (ctl, data, dual) = match pair {
+            Some((c, d)) => (c, d, true),
+            None => (bind4(cfg.port)?, bind4(cfg.port + 1)?, false),
+        };
         ctl.set_nonblocking(true).map_err(|e| e.to_string())?;
         {
             let mut g = self.inner();
@@ -386,7 +439,7 @@ impl Session {
             g.strangers.clear();
             g.cfg = cfg.clone();
         }
-        *self.sock.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(Sockets { ctl, data, port: cfg.port }));
+        *self.sock.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(Sockets { ctl, data, port: cfg.port, dual }));
         Ok(())
     }
 
@@ -410,12 +463,9 @@ impl Session {
 
     fn flush(&self, s: &Sockets, out: &mut Out) {
         for (data, ip, port, pkt) in out.sends.drain(..) {
-            let Ok(ip4) = ip.parse::<Ipv4Addr>() else { continue };
-            if port == 0 {
-                continue;
-            }
+            let Some(to) = send_addr(&ip, port, s.dual) else { continue };
             let sock = if data { &s.data } else { &s.ctl };
-            if sock.send_to(&pkt, SocketAddrV4::new(ip4, port)).is_err() {
+            if sock.send_to(&pkt, to).is_err() {
                 out.logs.push((format!("RTP-MIDI: send to {ip}:{port} failed"), true));
             }
         }
@@ -509,7 +559,7 @@ impl Session {
         drop(g);
         targets
             .iter()
-            .filter(|(ip, port)| ip.parse::<Ipv4Addr>().map(|a| s.data.send_to(&pkt, SocketAddrV4::new(a, *port)).is_ok()).unwrap_or(false))
+            .filter(|(ip, port)| send_addr(ip, *port, s.dual).is_some_and(|to| s.data.send_to(&pkt, to).is_ok()))
             .count()
     }
 
@@ -552,8 +602,7 @@ impl Session {
         {
             let mut g = self.inner();
             for (data, pkt, from) in &got {
-                let SocketAddr::V4(a) = from else { continue };
-                self.handle(&mut g, *data, pkt, &a.ip().to_string(), a.port(), &mut out);
+                self.handle(&mut g, *data, pkt, &addr_text(from), from.port(), &mut out);
             }
             self.timers(&mut g, &mut out);
             g.peers.retain(|p| !p.gone);
@@ -834,5 +883,32 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+#[cfg(test)]
+mod addr_tests {
+    use super::*;
+
+    #[test]
+    fn peer_addresses() {
+        let mapped: SocketAddr = SocketAddrV6::new(Ipv4Addr::new(192, 0, 2, 42).to_ipv6_mapped(), 5004, 0, 0).into();
+        assert_eq!(addr_text(&mapped), "192.0.2.42", "IPv4 through a dual-stack socket");
+        let ll: SocketAddr = SocketAddrV6::new("fe80::1234:5678:9abc:def0".parse().unwrap(), 5004, 0, 3).into();
+        assert_eq!(addr_text(&ll), "fe80::1234:5678:9abc:def0%3", "link-local keeps its interface");
+        assert_eq!(addr_text(&"[2001:db8::1]:5004".parse().unwrap()), "2001:db8::1");
+        assert_eq!(addr_text(&"192.0.2.7:5004".parse().unwrap()), "192.0.2.7");
+
+        assert_eq!(send_addr("192.0.2.7", 5004, true), Some(mapped_of("192.0.2.7", 5004)));
+        assert_eq!(send_addr("192.0.2.7", 5004, false), Some("192.0.2.7:5004".parse().unwrap()));
+        assert_eq!(send_addr("fe80::1234:5678:9abc:def0%3", 5005, true), Some(SocketAddrV6::new("fe80::1234:5678:9abc:def0".parse().unwrap(), 5005, 0, 3).into()));
+        assert_eq!(send_addr("fe80::1%3", 5005, false), None, "no IPv6 from IPv4-only sockets");
+        assert_eq!(send_addr("192.0.2.7", 0, true), None, "port 0");
+        assert_eq!(send_addr("not an address", 5004, true), None);
+        assert_eq!(send_addr("fe80::1%x", 5004, true), None, "bad scope");
+    }
+
+    fn mapped_of(ip: &str, port: u16) -> SocketAddr {
+        SocketAddrV6::new(ip.parse::<Ipv4Addr>().unwrap().to_ipv6_mapped(), port, 0, 0).into()
     }
 }

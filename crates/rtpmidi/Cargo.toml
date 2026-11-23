@@ -8,3 +8,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Dual-stack UDP sockets (IPV6_V6ONLY off before bind; std cannot do that).
+socket2 = "0.5"

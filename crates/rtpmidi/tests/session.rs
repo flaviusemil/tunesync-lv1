@@ -2,7 +2,7 @@
 //! session on loopback UDP. The fake peers are written from the wire format with raw
 //! bytes, NOT with the codec, so a mistake in the codec cannot cancel itself out on both
 //! ends. Ported from the C++ net_test (branch feature/windows-shell).
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -135,6 +135,7 @@ fn fuzz() {
 struct Sock {
     s: UdpSocket,
     port: u16,
+    v6: bool,
 }
 
 // Tests run in parallel threads: every port pair comes from one counter, so a pair
@@ -147,16 +148,28 @@ fn next_ports() -> impl Iterator<Item = u16> {
 
 impl Sock {
     fn pair() -> (Sock, Sock) {
+        Self::pair_on(false).expect("no free loopback port pair")
+    }
+    /// On ::1 (what a Mac uses when DNS-SD hands it the host's IPv6 address); None when
+    /// this machine has no IPv6 loopback.
+    fn pair_on(v6: bool) -> Option<(Sock, Sock)> {
+        let at = |p: u16| -> SocketAddr { if v6 { SocketAddrV6::new(Ipv6Addr::LOCALHOST, p, 0, 0).into() } else { SocketAddrV4::new(Ipv4Addr::LOCALHOST, p).into() } };
         for p in next_ports() {
-            let (Ok(c), Ok(d)) = (UdpSocket::bind(("127.0.0.1", p)), UdpSocket::bind(("127.0.0.1", p + 1))) else { continue };
+            let (Ok(c), Ok(d)) = (UdpSocket::bind(at(p)), UdpSocket::bind(at(p + 1))) else {
+                if v6 && UdpSocket::bind(at(0)).is_err() {
+                    return None;
+                }
+                continue;
+            };
             c.set_nonblocking(true).unwrap();
             d.set_nonblocking(true).unwrap();
-            return (Sock { s: c, port: p }, Sock { s: d, port: p + 1 });
+            return Some((Sock { s: c, port: p, v6 }, Sock { s: d, port: p + 1, v6 }));
         }
-        panic!("no free loopback port pair");
+        None
     }
     fn send(&self, to: u16, b: &[u8]) {
-        self.s.send_to(b, SocketAddrV4::new(Ipv4Addr::LOCALHOST, to)).unwrap();
+        let dst: SocketAddr = if self.v6 { SocketAddrV6::new(Ipv6Addr::LOCALHOST, to, 0, 0).into() } else { SocketAddrV4::new(Ipv4Addr::LOCALHOST, to).into() };
+        self.s.send_to(b, dst).unwrap();
     }
     fn recv(&self) -> Option<(Vec<u8>, u16)> {
         let mut buf = [0u8; 2048];
@@ -208,6 +221,13 @@ struct FakeInitiator {
 impl FakeInitiator {
     fn new(token: u32, ssrc: u32, name: &'static str) -> Self {
         let (ctl, data) = Sock::pair();
+        Self::with(ctl, data, token, ssrc, name)
+    }
+    fn new_v6(token: u32, ssrc: u32, name: &'static str) -> Option<Self> {
+        let (ctl, data) = Sock::pair_on(true)?;
+        Some(Self::with(ctl, data, token, ssrc, name))
+    }
+    fn with(ctl: Sock, data: Sock, token: u32, ssrc: u32, name: &'static str) -> Self {
         FakeInitiator { ctl, data, token, ssrc, name, seq: 100, ok_ctl: false, ok_data: false, refused: false, ck1_ts1: vec![], feedback: vec![] }
     }
     fn step(&mut self) {
@@ -578,4 +598,62 @@ fn session_to_session() {
     assert!(err.contains("in use"), "{err}");
     a.close();
     assert!(until(1000, || { b.poll(1); b.peers().is_empty() }), "a's goodbye reaches b");
+}
+
+/// A Mac that connects by the Bonjour name gets the host's IPv6 link-local address as well
+/// as its IPv4 one and uses IPv6 (seen with a Windows LV1 host and macOS 12: every "Connect" from Audio
+/// MIDI Setup timed out while the session listened on IPv4 only). Over ::1 here: invited,
+/// clock sync answered, MIDI delivered, and an IPv4 rig in the same session still works.
+#[test]
+fn a_mac_connects_over_ipv6() {
+    let (s, got, _log, c) = session_with(None);
+    s.open(c).unwrap();
+    let sp = s.port();
+    let Some(mut mac) = FakeInitiator::new_v6(0x66660006, 0x6A6A0006, "Studio-Mac") else {
+        eprintln!("a_mac_connects_over_ipv6: no IPv6 loopback here, skipped");
+        return;
+    };
+    let mut rig = FakeInitiator::new(0x44440004, 0x4B4B0004, "Playback-Main");
+    let step = |mac: &mut FakeInitiator, rig: &mut FakeInitiator| {
+        s.poll(2);
+        mac.step();
+        rig.step();
+    };
+    mac.invite_ctl(sp);
+    rig.invite_ctl(sp);
+    let end = Instant::now() + Duration::from_secs(1);
+    while !(mac.ok_ctl && rig.ok_ctl) && Instant::now() < end {
+        step(&mut mac, &mut rig);
+    }
+    assert!(mac.ok_ctl, "the IPv6 invitation reached the control port and was accepted");
+    assert!(rig.ok_ctl, "IPv4 still accepted on the same socket");
+    mac.invite_data(sp);
+    rig.invite_data(sp);
+    let end = Instant::now() + Duration::from_secs(1);
+    while !(mac.ok_data && rig.ok_data) && Instant::now() < end {
+        step(&mut mac, &mut rig);
+    }
+    assert!(mac.ok_data && rig.ok_data, "both data invitations accepted");
+    let ps = s.peers();
+    let m = ps.iter().find(|p| p.name == "Studio-Mac").expect("the Mac is a peer");
+    assert_eq!((m.ip.as_str(), m.state), ("::1", PeerState::Connected));
+    let r = ps.iter().find(|p| p.name == "Playback-Main").expect("the rig is a peer");
+    assert_eq!(r.ip, "127.0.0.1", "an IPv4 peer keeps its plain IPv4 address (not ::ffff:127.0.0.1)");
+
+    mac.ck0(sp, 4242);
+    let end = Instant::now() + Duration::from_secs(1);
+    while mac.ck1_ts1.is_empty() && Instant::now() < end {
+        step(&mut mac, &mut rig);
+    }
+    assert_eq!(mac.ck1_ts1.first(), Some(&4242), "CK0 over IPv6 answered");
+
+    mac.midi(sp, &[0x9F, 62, 100]);
+    rig.midi(sp, &[0xBF, 20, 4]);
+    let end = Instant::now() + Duration::from_secs(1);
+    while got.lock().unwrap().len() < 2 && Instant::now() < end {
+        step(&mut mac, &mut rig);
+    }
+    let g = got.lock().unwrap().clone();
+    assert!(g.contains(&("Studio-Mac".to_string(), vec![0x9F, 62, 100])), "MIDI over IPv6 delivered: {g:?}");
+    assert!(g.contains(&("Playback-Main".to_string(), vec![0xBF, 20, 4])), "MIDI over IPv4 delivered: {g:?}");
 }
