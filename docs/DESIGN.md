@@ -283,6 +283,7 @@ Ch 1-3 (slot 2):
 | LV1's UI thread | WM_NULL round trips every 10 ms for 15 s over two cues: median 1.7 ms, p99 14.9 ms, max 26 ms |
 | Settings window | opens from Setup -> Control Surfaces (LV1 lists it under Controls), Direct2D text crisp at 175 %, live Tunes list with Rcv/Lock |
 | Surface re-created | loading another session destroyed and re-created the surface: stop + start in 32 ms, UDP 5004 re-bound |
+| Control Surfaces status (0.1.9, 2026-11-24) | LV1 lists TuneSync as "ON" in green with the iPad connected over RTP-MIDI; LV1 took every SurfaceStatus param (no refusal logged) |
 
 **A Mac over the network (2026-11-23, macOS 12.7.6, Audio MIDI Setup's network session, both
 on Wi-Fi, RTT 2-8 ms):** the Mac listed "TuneSync" under Directory (DNS-SD advertising works)
