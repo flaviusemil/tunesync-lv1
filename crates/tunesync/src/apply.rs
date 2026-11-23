@@ -36,6 +36,11 @@ pub trait Mixer {
     fn set_tempo(&mut self, _bpm: f64) -> bool {
         false
     }
+    /// Shows on the console whether an input is connected (LV1: the status beside the
+    /// surface in Setup > Control Surfaces). Returns false when the console refused it.
+    fn show_connected(&mut self, _connected: bool) -> bool {
+        true
+    }
 }
 
 /// Which tracks to look at. Track types: 0 Ch, 1 Gp, 2 Fx (LV1's WSTrackID).

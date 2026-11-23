@@ -9,7 +9,8 @@
 //!
 //! Only what a driver needs to read and write mixer controls is here; meters, the patch
 //! and the inventory (also in the C header) are not.
-use std::ffi::c_void;
+use std::ffi::{c_long, c_void};
+use std::ptr::addr_of_mut;
 
 /// `WCSurfaceDriverManager::LoadSurfaceDriverFromPath` requires exactly this.
 pub const INTERFACE_VERSION: i32 = 6;
@@ -179,15 +180,18 @@ pub mod param {
     /// [`MixerParamDouble`](super::MixerParamDouble) in BPM. Setting it runs
     /// `WCMixerCore::SetParamMixerSettingsTempo` -> every tempo-listening plug-in.
     pub const MIXER_SETTING_TEMPO: u32 = 4019;
+    /// What Setup > Control Surfaces shows beside a surface: a
+    /// [`MixerParamSurfaceStatus`](super::MixerParamSurfaceStatus). Mackie sends it every
+    /// 2 s: "ON" when its MIDI device is connected, "N/A" otherwise.
+    pub const SURFACE_STATUS: u32 = 7031;
 }
 
-/// `wvMixerNS::WSMixerParamDouble`, 0x3D bytes: the 0x35-byte WSMixerParam header and a
-/// double. The header is what `WSMixerParamDouble(WEMixerParamType)` writes (Mac
-/// MyMon_Control 17.3.50); `GetParamTrait` / `SetParamMixerSettingsTempo` read and write
-/// the value at +0x35. LV1's own MyMon driver sets the tempo with exactly this.
+/// `wvMixerNS::WSMixerParam`, the 0x35-byte header every mixer param starts with, as
+/// `WSMixerParam(WEMixerParamType)` writes it (Mac MyMon_Control 17.3.50; the Windows
+/// MixerCoreSG 17.3.50 constructors write the same).
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-pub struct MixerParamDouble {
+pub struct ParamHeader {
     pub f00: u32,
     /// 2
     pub f04: u32,
@@ -199,6 +203,22 @@ pub struct MixerParamDouble {
     pub f30: u32,
     /// 1
     pub f34: u8,
+}
+const _: () = assert!(std::mem::size_of::<ParamHeader>() == 0x35);
+
+impl ParamHeader {
+    pub fn new(type_: u32) -> Self {
+        ParamHeader { f00: 0, f04: 2, f08: [0; 0x20], type_, f2c: u32::MAX, f30: 0, f34: 1 }
+    }
+}
+
+/// `wvMixerNS::WSMixerParamDouble`, 0x3D bytes: the header and a double.
+/// `GetParamTrait` / `SetParamMixerSettingsTempo` read and write the value at +0x35. LV1's
+/// own MyMon driver sets the tempo with exactly this.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct MixerParamDouble {
+    pub head: ParamHeader,
     /// +0x35
     pub value: f64,
 }
@@ -206,7 +226,91 @@ const _: () = assert!(std::mem::size_of::<MixerParamDouble>() == 0x3D);
 
 impl MixerParamDouble {
     pub fn new(type_: u32, value: f64) -> Self {
-        MixerParamDouble { f00: 0, f04: 2, f08: [0; 0x20], type_, f2c: u32::MAX, f30: 0, f34: 1, value }
+        MixerParamDouble { head: ParamHeader::new(type_), value }
+    }
+}
+
+/// Waves' `WCFixedString<B - 1>`: a pointer to the text, the capacity, a pointer to its
+/// NUL, then the `B` bytes the pointers point into. LV1 reads the text through the first
+/// pointer, so whatever holds one must stay put after [`FixedStr::set`] (hence the Box in
+/// [`MixerParamSurfaceStatus::new`]).
+#[repr(C, packed)]
+pub struct FixedStr<const B: usize> {
+    pub begin: *mut u8,
+    pub cap: usize,
+    pub end: *mut u8,
+    pub buf: [u8; B],
+}
+
+impl<const B: usize> FixedStr<B> {
+    fn empty() -> Self {
+        FixedStr { begin: std::ptr::null_mut(), cap: B - 1, end: std::ptr::null_mut(), buf: [0; B] }
+    }
+
+    /// `s` (truncated, NUL-terminated), with both pointers into this string's own bytes.
+    pub fn set(&mut self, s: &str) {
+        let mut buf = [0u8; B];
+        put_cstr(&mut buf, s);
+        let n = buf.iter().position(|&b| b == 0).unwrap_or(B - 1);
+        self.buf = buf; // by value: a packed struct's field can't be borrowed
+        let begin = addr_of_mut!(self.buf) as *mut u8;
+        self.begin = begin;
+        self.end = begin.wrapping_add(n);
+    }
+
+    /// The text up to its NUL, read through `begin` as LV1 does ("" when unset).
+    pub fn text(&self) -> String {
+        let begin = self.begin;
+        if begin.is_null() {
+            return String::new();
+        }
+        // SAFETY: `begin` points into `buf` (set() put it there), which holds a NUL.
+        unsafe { std::ffi::CStr::from_ptr(begin as *const std::ffi::c_char) }.to_string_lossy().into_owned()
+    }
+}
+
+/// `wvMixerNS::WSMixerParamSurfaceStatus`: what a driver sends with SetMixerParam to set
+/// the status Setup > Control Surfaces shows beside it.
+///
+/// LV1 17.3.50 (`WCMixerCore::SetParamSurfaceDriverStatus` ->
+/// `WCSurfaceDriverManager::SetSurfaceStatusInfo(type, status, const long& color, extra)`)
+/// finds the surface by `surface_type` (what `WMSD_GetAvailableControllerInfo` gave as the
+/// type), keeps 12 characters of `status` and the colour, and does nothing when the type
+/// is empty. Mackie sends "ON" with 0xFF00 and "N/A" with 0xFF0000.
+///
+/// `color` is a C `long`: 8 bytes on macOS, 4 on Windows, so everything after it sits 4
+/// bytes earlier on Windows (read from both MixerCoreSGs' constructors and handlers).
+#[repr(C, packed)]
+pub struct MixerParamSurfaceStatus {
+    pub head: ParamHeader,
+    /// +0x035
+    pub surface_type: FixedStr<0x400>,
+    /// +0x44D -1
+    pub f44d: u32,
+    /// +0x451 0xRRGGBB
+    pub color: c_long,
+    /// +0x459 (Windows +0x455)
+    pub status: FixedStr<0x10>,
+    /// +0x481 (Windows +0x47D): Mackie leaves it empty
+    pub extra: FixedStr<0x400>,
+}
+const _: () = assert!(std::mem::size_of::<MixerParamSurfaceStatus>() == if cfg!(windows) { 0x895 } else { 0x899 });
+
+impl MixerParamSurfaceStatus {
+    /// Boxed, so the strings' pointers keep pointing into it.
+    pub fn new(surface_type: &str, status: &str, color: u32) -> Box<Self> {
+        let mut p = Box::new(MixerParamSurfaceStatus {
+            head: ParamHeader::new(param::SURFACE_STATUS),
+            surface_type: FixedStr::empty(),
+            f44d: u32::MAX,
+            color: color as c_long,
+            status: FixedStr::empty(),
+            extra: FixedStr::empty(),
+        });
+        p.surface_type.set(surface_type);
+        p.status.set(status);
+        p.extra.set("");
+        p
     }
 }
 
@@ -240,9 +344,15 @@ mod tests {
         assert_eq!(offset_of!(MixerControl, grp_type), 0x1D0);
         assert_eq!(offset_of!(ControlId, section), 0x10);
         assert_eq!(offset_of!(ControlId, control_id), 0x1C);
-        assert_eq!(offset_of!(MixerParamDouble, type_), 0x28);
-        assert_eq!(offset_of!(MixerParamDouble, f34), 0x34);
+        assert_eq!(offset_of!(ParamHeader, type_), 0x28);
+        assert_eq!(offset_of!(ParamHeader, f34), 0x34);
         assert_eq!(offset_of!(MixerParamDouble, value), 0x35);
+        let (status, extra) = if cfg!(windows) { (0x455, 0x47D) } else { (0x459, 0x481) };
+        assert_eq!(offset_of!(MixerParamSurfaceStatus, surface_type), 0x035);
+        assert_eq!(offset_of!(MixerParamSurfaceStatus, f44d), 0x44D);
+        assert_eq!(offset_of!(MixerParamSurfaceStatus, color), 0x451);
+        assert_eq!(offset_of!(MixerParamSurfaceStatus, status), status);
+        assert_eq!(offset_of!(MixerParamSurfaceStatus, extra), extra);
     }
 
     #[test]
@@ -252,6 +362,25 @@ mod tests {
         assert_eq!(&b[0..8], &[0, 0, 0, 0, 2, 0, 0, 0]);
         assert_eq!(&b[0x28..0x35], &[0xB3, 0x0F, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 1]);
         assert_eq!(&b[0x35..], &128.0f64.to_le_bytes());
+    }
+
+    #[test]
+    fn a_surface_status_is_what_mackie_builds() {
+        let p = MixerParamSurfaceStatus::new("TuneSync", "ON", 0xFF00);
+        let base = &*p as *const MixerParamSurfaceStatus as *const u8;
+        // SAFETY: reading the header bytes of the boxed struct.
+        let head = unsafe { std::slice::from_raw_parts(base, 0x35) };
+        assert_eq!(&head[0..8], &[0, 0, 0, 0, 2, 0, 0, 0]);
+        assert_eq!(&head[0x28..0x35], &[0x77, 0x1B, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 1]);
+        assert_eq!(p.surface_type.text(), "TuneSync");
+        assert_eq!(p.status.text(), "ON");
+        assert_eq!(p.extra.text(), "");
+        let (st, ty) = (&p.status, &p.surface_type);
+        assert_eq!(st.begin as usize, base as usize + std::mem::offset_of!(MixerParamSurfaceStatus, status) + 0x18, "into its own bytes");
+        assert_eq!(({ ty.end } as usize) - ({ ty.begin } as usize), 8, "end at the NUL");
+        assert_eq!(({ st.cap }, { ty.cap }), (0xF, 0x3FF));
+        assert_eq!(({ p.f44d }, { p.color }), (u32::MAX, 0xFF00));
+        assert_eq!(MixerParamSurfaceStatus::new("TuneSync", "a status far too long", 0).status.text().len(), 15, "truncated, NUL kept");
     }
 
     #[test]

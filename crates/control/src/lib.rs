@@ -19,6 +19,9 @@ pub mod window;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The surface type LV1 stores and finds TuneSync's status row by.
+pub const SURFACE_TYPE: &str = "TuneSync";
+
 /// One TuneSync per LV1: a second surface would fight over the MIDI port and UDP 5004.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -31,7 +34,7 @@ pub struct TuneSync {
 
 impl SurfaceDriver for TuneSync {
     fn info() -> DriverInfo {
-        DriverInfo { name: "TuneSync", category: "Surface", type_: "TuneSync" }
+        DriverInfo { name: "TuneSync", category: "Surface", type_: SURFACE_TYPE }
     }
 
     fn create(lv1: Arc<Lv1>) -> Option<Self> {

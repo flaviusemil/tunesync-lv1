@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use lv1_surface::abi::{ctl, section, MixerControl};
+use lv1_surface::abi::{ctl, param, section, MixerControl, MixerParamSurfaceStatus, ParamHeader};
 
 const KEYS: [&str; 17] = ["C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B"];
 const SCALES: [&str; 11] = [
@@ -42,6 +42,8 @@ static GETS: AtomicU64 = AtomicU64::new(0);
 static SETS: AtomicU64 = AtomicU64::new(0);
 static TOUCHES: AtomicU64 = AtomicU64::new(0);
 static RELEASES: AtomicU64 = AtomicU64::new(0);
+/// The last SurfaceStatus a driver sent: (surface type, status, colour).
+static STATUS: Mutex<(String, String, u32)> = Mutex::new((String::new(), String::new(), 0));
 
 fn model() -> std::sync::MutexGuard<'static, BTreeMap<Key, BTreeMap<u32, f64>>> {
     MODEL.lock().unwrap_or_else(|e| e.into_inner())
@@ -155,9 +157,37 @@ pub extern "C" fn SetMixerAssignmentsWrapper(_: *mut c_void, _: *mut c_void) -> 
 pub extern "C" fn GetMixerAssignmentsWrapper(_: *mut c_void, _: *mut c_void) -> i32 {
     0
 }
+/// Takes a SurfaceStatus the way LV1 does: the strings through their pointers, and -1
+/// for an empty surface type. Every other param is accepted and ignored.
 #[no_mangle]
-pub extern "C" fn SetMixerParamWrapper(_: *mut c_void, _: *mut c_void) -> i32 {
+pub unsafe extern "C" fn SetMixerParamWrapper(_: *mut c_void, p: *mut c_void) -> i32 {
+    let Some(head) = (p as *const ParamHeader).as_ref() else { return -1 };
+    if { head.type_ } != param::SURFACE_STATUS {
+        return 0;
+    }
+    let s = &*(p as *const MixerParamSurfaceStatus);
+    let ty = s.surface_type.text();
+    if ty.is_empty() {
+        return -1;
+    }
+    let status: String = s.status.text().chars().take(12).collect(); // LV1 keeps 12
+    *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = (ty, status, s.color as u32);
     0
+}
+
+/// The last SurfaceStatus: the status text into `buf` (NUL-terminated), the colour returned;
+/// `ty` gets the surface type. 0 and "" before any.
+#[no_mangle]
+pub unsafe extern "C" fn fakecore_status(ty: *mut u8, status: *mut u8, len: usize) -> u32 {
+    let st = STATUS.lock().unwrap_or_else(|e| e.into_inner());
+    for (dst, src) in [(ty, &st.0), (status, &st.1)] {
+        if !dst.is_null() && len > 0 {
+            let n = src.len().min(len - 1);
+            std::ptr::copy_nonoverlapping(src.as_ptr(), dst, n);
+            *dst.add(n) = 0;
+        }
+    }
+    st.2
 }
 #[no_mangle]
 pub extern "C" fn GetMixerParamWrapper(_: *mut c_void, _: *mut c_void) -> i32 {

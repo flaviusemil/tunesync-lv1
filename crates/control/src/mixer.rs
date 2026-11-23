@@ -6,6 +6,9 @@
 //! returns at once and a read straight after still shows the old value), so `set` sends
 //! Touch and Control, waits (bounded) until LV1 reads back the new value, then Release:
 //! apply()'s read-back then sees what LV1 really holds.
+//!
+//! The status LV1 lists beside TuneSync in Setup > Control Surfaces is a SurfaceStatus
+//! param, sent from the same worker thread ([`Mixer::show_connected`]).
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -89,6 +92,12 @@ impl Mixer for Lv1Mixer {
             }
         }
         true
+    }
+
+    fn show_connected(&mut self, connected: bool) -> bool {
+        // Mackie's words and colours: green "ON", red "N/A".
+        let (text, color) = if connected { ("ON", 0x00FF00) } else { ("N/A", 0xFF0000) };
+        matches!(self.lv1.set_surface_status(crate::SURFACE_TYPE, text, color), Ok(0))
     }
 
     fn track_name(&mut self, tt: u32, ti: u32) -> String {

@@ -146,6 +146,26 @@ Proven on the rig 2026-11-23 (0.1.6 test build, whose CC 21 was then 60 + value)
 68` -> `[ok] Tempo 128 BPM (was 127)`, read back 28 ms after the CC. TuneSync only logs the tempo it sets: LV1's tempo
 when TuneSync loads is its default 120, because the session's tempo loads later.
 
+**Status in Setup > Control Surfaces.** LV1 lists each surface with a status beside it, and
+the driver sets it: LV1 does not ask. Mackie sends a SurfaceStatus mixer param (**7031**, a
+`WSMixerParamSurfaceStatus`) every 2 s: "ON" in green (0xFF00) when its MIDI device is connected,
+"N/A" in red (0xFF0000) when not. A surface that sends nothing stays at "N/A". TuneSync sends the
+same words and colours from its worker thread. "ON" means an input is connected, as the window's
+green dots say: the chosen MIDI input is open, or RTP-MIDI has a connected peer. It is sent
+when that changes (looked at every 250 ms) and again every 2 s.
+
+The struct, read from both MixerCoreSGs 17.3.50 (`WCMixerCore::SetParamSurfaceDriverStatus` ->
+`WCSurfaceDriverManager::SetSurfaceStatusInfo(type, status, const long& color, extra)`):
+- **Header and type:** the param header, then three Waves `WCFixedString`s and a colour. Each
+  string is a pointer to its text, the capacity, a pointer to the NUL, then the bytes, and LV1
+  reads the text through the first pointer. The surface type is at +0x35 (1023 chars). It must
+  be the type `WMSD_GetAvailableControllerInfo` gave, and LV1 ignores the param when it is empty.
+- **Colour:** at +0x451, a C `long`, so 8 bytes on macOS but 4 on Windows. Everything after it
+  sits 4 bytes earlier on Windows.
+- **Status and extra:** the status text (15 chars, of which LV1 keeps 12) is at +0x459 on macOS
+  and +0x455 on Windows. An extra string (1023 chars, which Mackie leaves empty) follows. The
+  whole struct is 0x899 bytes on macOS and 0x895 on Windows.
+
 ## Settings window
 
 Opened from LV1's **Setup → Control Surfaces** settings button (WMSD_ShowConfigWindow). It

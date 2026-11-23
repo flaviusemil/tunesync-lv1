@@ -219,6 +219,13 @@ mod win {
                 counts(v.as_mut_ptr());
                 v
             };
+            let status_fn: unsafe extern "C" fn(*mut u8, *mut u8, usize) -> u32 = sym(core_dll, "fakecore_status");
+            let status = || {
+                let (mut ty, mut st) = ([0u8; 64], [0u8; 64]);
+                let color = status_fn(ty.as_mut_ptr(), st.as_mut_ptr(), 64);
+                let text = |b: &[u8]| String::from_utf8_lossy(&b[..b.iter().position(|&x| x == 0).unwrap_or(0)]).into_owned();
+                (text(&ty), text(&st), color)
+            };
             reset();
 
             let create: Create = sym(drv, "WMSD_CreateControllerForType");
@@ -228,6 +235,9 @@ mod win {
             c.check(!ctrl.is_null(), &format!("Create returned a controller in {} ms", t0.elapsed().as_millis()));
             c.check(t0.elapsed() < Duration::from_millis(200), "Create did not block LV1's thread");
             c.check(wait_for(5000, || count()[0] > 160 * 8), &format!("the first scan ran ({} reads)", count()[0]));
+            wait_for(2000, || !status().0.is_empty());
+            let s0 = status();
+            c.check(s0 == ("TuneSync".into(), "N/A".into(), 0xFF0000), &format!("Control Surfaces shows {s0:?} before anything connects"));
 
             // A playback rig joins the session and sends the cue.
             let rig = Session::new();
@@ -238,11 +248,17 @@ mod win {
                 rig.peers().iter().any(|p| p.state == PeerState::Connected)
             });
             c.check(joined, "a rig joined TuneSync's RTP-MIDI session");
+            let on = wait_for(2000, || {
+                rig.poll(5);
+                status().1 == "ON"
+            });
+            c.check(on && status().2 == 0x00FF00, &format!("Control Surfaces shows {:?} once the rig is connected", status()));
             let t1 = Instant::now();
             rig.send(&[&[0xBF, 20, 4], &[0x9F, 62, 100]]);
             let applied = wait_for(3000, || {
                 rig.poll(5);
-                param(0, 42, 0, 40) == 3.0 && param(0, 43, 2, 40) == 3.0
+                // key and scale: each Control lands on its own, a moment apart
+                param(0, 42, 0, 40) == 3.0 && param(0, 43, 2, 40) == 3.0 && param(0, 42, 0, 39) == 4.0 && param(0, 43, 2, 39) == 4.0
             });
             c.check(applied, &format!("CC 20 = 4 + Note On D: Ch 43 and Ch 44 -> D in {} ms", t1.elapsed().as_millis()));
             c.check(param(0, 42, 0, 39) == 4.0 && param(0, 43, 2, 39) == 4.0, "both on Harmonic Minor");

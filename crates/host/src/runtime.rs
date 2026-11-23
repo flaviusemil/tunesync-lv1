@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use rtpmidi::session::PeerState;
 use tunesync::apply::{Mixer, TuneInstance};
 use tunesync::engine::{Engine, Status};
 use tunesync::log::{Level, LogLine, LogRing};
@@ -42,6 +43,36 @@ impl RuntimeConfig {
     /// The whole runtime: TuneSync's own MIDI input and RTP-MIDI, no health check.
     pub fn new(dir: impl Into<PathBuf>, title: impl Into<String>) -> Self {
         RuntimeConfig { dir: dir.into(), title: title.into(), health: None, local_midi: true, rtp: true }
+    }
+}
+
+/// The status the console shows beside TuneSync (LV1: Setup > Control Surfaces). The
+/// inputs are looked at every [`StatusLight::LOOK_MS`]; the status is sent when it changes
+/// and again every [`StatusLight::EVERY_MS`], as LV1's own Mackie driver does.
+#[derive(Default)]
+pub struct StatusLight {
+    looked_ms: Option<u64>,
+    sent: Option<(bool, u64)>,
+}
+
+impl StatusLight {
+    pub const LOOK_MS: u64 = 250;
+    pub const EVERY_MS: u64 = 2000;
+
+    /// What to send now, if anything. `look` says whether an input is connected.
+    pub fn due(&mut self, now_ms: u64, look: impl FnOnce() -> bool) -> Option<bool> {
+        if self.looked_ms.is_some_and(|t| now_ms.saturating_sub(t) < Self::LOOK_MS) {
+            return None;
+        }
+        self.looked_ms = Some(now_ms);
+        let on = look();
+        match self.sent {
+            Some((was, at)) if was == on && now_ms.saturating_sub(at) < Self::EVERY_MS => None,
+            _ => {
+                self.sent = Some((on, now_ms));
+                Some(on)
+            }
+        }
     }
 }
 
@@ -139,6 +170,7 @@ impl Runtime {
 
     fn work(&self, mut mixer: Box<dyn Mixer + Send>, health: Option<Box<dyn Fn() -> Option<String> + Send + Sync>>) {
         let mut said = false;
+        let (mut light, mut refused) = (StatusLight::default(), false);
         self.engine.request_scan(); // the Tunes list is ready when the window first opens
         while self.run.load(Ordering::SeqCst) {
             let t0 = now_ms();
@@ -152,6 +184,12 @@ impl Runtime {
                 if let Some(why) = health.as_ref().and_then(|h| h()) {
                     said = true;
                     self.log.add(Level::Warn, why);
+                }
+            }
+            if let Some(on) = light.due(now_ms(), || self.connected()) {
+                if !mixer.show_connected(on) && !refused && !said {
+                    refused = true;
+                    self.log.add(Level::Info, "LV1 did not take TuneSync's status: Setup -> Control Surfaces keeps showing N/A");
                 }
             }
             self.file.flush();
@@ -261,6 +299,17 @@ impl Runtime {
         self.rtp.is_some()
     }
 
+    /// An input is connected, as the window's green dots say: the MIDI input named in the
+    /// settings is open, or RTP-MIDI has a connected peer.
+    pub fn connected(&self) -> bool {
+        let s = self.settings();
+        let midi = !s.midi_port.is_empty() && self.midi_open() == s.midi_port;
+        midi || {
+            let v = self.rtp();
+            v.enabled && v.open && v.peers.iter().any(|p| p.state == PeerState::Connected)
+        }
+    }
+
     pub fn midi_ports(&self) -> Vec<String> {
         self.midi.as_ref().map(|m| m.ports()).unwrap_or_default()
     }
@@ -305,5 +354,29 @@ impl Runtime {
 
     pub fn now_ms(&self) -> u64 {
         now_ms()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StatusLight;
+
+    #[test]
+    fn the_status_is_sent_on_change_and_every_two_seconds() {
+        let mut l = StatusLight::default();
+        assert_eq!(l.due(1000, || false), Some(false), "the first look sends");
+        assert_eq!(l.due(1100, || true), None, "looked at most every 250 ms");
+        assert_eq!(l.due(1250, || true), Some(true), "a change goes out at the next look");
+        assert_eq!(l.due(1500, || true), None, "unchanged: not again yet");
+        assert_eq!(l.due(3250, || true), Some(true), "unchanged: again after 2 s");
+        let mut looked = false;
+        assert_eq!(
+            l.due(3300, || {
+                looked = true;
+                false
+            }),
+            None
+        );
+        assert!(!looked, "the inputs are not looked at between looks");
     }
 }

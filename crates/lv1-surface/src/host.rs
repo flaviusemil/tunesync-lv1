@@ -14,7 +14,7 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use crate::abi::{CoreCallbacks, HostFn, MixerControl, MixerParamDouble, CALLBACK_EXPORTS};
+use crate::abi::{CoreCallbacks, HostFn, MixerControl, MixerParamDouble, MixerParamSurfaceStatus, CALLBACK_EXPORTS};
 use crate::os;
 
 /// A call into LV1 faulted (the exception code on Windows).
@@ -90,6 +90,14 @@ impl Lv1 {
     pub fn set_param_double(&self, type_: u32, value: f64) -> Result<i32, Fault> {
         let mut p = MixerParamDouble::new(type_, value);
         self.call(self.cb.set_mixer_param, &mut p as *mut MixerParamDouble as *mut c_void)
+    }
+
+    /// SetMixerParam SurfaceStatus: the status Setup > Control Surfaces shows beside this
+    /// surface (Mackie: "ON" in 0xFF00, "N/A" in 0xFF0000). `surface_type` is the type
+    /// `WMSD_GetAvailableControllerInfo` gave. Ok(0) = LV1 found the surface.
+    pub fn set_surface_status(&self, surface_type: &str, status: &str, color: u32) -> Result<i32, Fault> {
+        let mut p = MixerParamSurfaceStatus::new(surface_type, status, color);
+        self.call(self.cb.set_mixer_param, &mut *p as *mut MixerParamSurfaceStatus as *mut c_void)
     }
 
     /// The first fault's code, if a call ever faulted.
