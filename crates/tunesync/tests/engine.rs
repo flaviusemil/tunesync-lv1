@@ -26,6 +26,10 @@ struct FakeMixer {
     refuse: BTreeSet<(u32, u32, u32, i32)>, // sets LV1 accepts but silently ignores
     gets: usize,
     sets: usize,
+    /// LV1's system tempo; None = can't be read (an LV1 without it).
+    tempo: Option<f64>,
+    /// set_tempo is taken but nothing changes
+    tempo_stuck: bool,
 }
 
 impl FakeMixer {
@@ -105,6 +109,18 @@ impl Mixer for FakeMixer {
     }
     fn track_name(&mut self, tt: u32, ti: u32) -> String {
         self.names.get(&(tt, ti)).cloned().unwrap_or_default()
+    }
+    fn tempo(&mut self) -> Option<f64> {
+        self.tempo
+    }
+    fn set_tempo(&mut self, bpm: f64) -> bool {
+        if self.tempo.is_none() {
+            return false;
+        }
+        if !self.tempo_stuck {
+            self.tempo = Some(bpm);
+        }
+        true
     }
 }
 
@@ -290,4 +306,54 @@ fn engine_end_to_end() {
     e.request_scan();
     e.tick(&mut m, 11000);
     assert_eq!((e.tunes().len(), e.status().tunes), (3, 3), "rescan finds a new Tune");
+}
+
+/// CC 21 sets LV1's tempo (provisional mapping): no Tune pass, the result read back.
+#[test]
+fn tempo_by_cc() {
+    let mut m = FakeMixer { tempo: Some(120.0), ..Default::default() };
+    m.tune(0, 42, 0, 10, 1, true);
+    let log = Arc::new(LogRing::default());
+    let e = Engine::new(log.clone());
+    e.configure(&Settings::default());
+    assert_eq!(e.tick(&mut m, 100), None);
+    assert_eq!(log.snapshot()[0].text, "LV1 tempo: 120 BPM", "logged once at start");
+
+    e.on_midi("RTP iPad", &cc(16, 21, 68), 1000);
+    assert_eq!(e.tick(&mut m, 1000), None, "set at once: nothing pending");
+    assert_eq!(m.tempo, Some(128.0));
+    assert_eq!(m.sets, 0, "no Tune touched");
+    let l = log.snapshot();
+    assert_eq!(l[1].text, "RTP iPad CC 21 = 68 (128 BPM) ch 16");
+    assert_eq!((l[2].level, l[2].text.as_str()), (Level::Ok, "Tempo 128 BPM (was 120) (RTP iPad)"));
+    assert_eq!(e.status().changes, 0, "the Tunes banner is not a tempo's");
+
+    // a key cue with a tempo: both, one Tune pass
+    e.on_midi("RTP iPad", &cc(16, 21, 32), 2000);
+    e.on_midi("RTP iPad", &note(16, 57, 100), 2001);
+    e.tick(&mut m, 2001);
+    e.tick(&mut m, 2031);
+    assert_eq!((m.tempo, m.key(0, 42, 0)), (Some(92.0), 13));
+
+    e.on_midi("RTP iPad", &cc(16, 21, 32), 3000);
+    e.tick(&mut m, 3000);
+    assert!(log.snapshot().last().unwrap().text.contains("Tempo 92 BPM: already there"));
+
+    m.tempo_stuck = true;
+    e.on_midi("RTP iPad", &cc(16, 21, 0), 4000);
+    e.tick(&mut m, 4000);
+    let last = log.snapshot().last().unwrap().clone();
+    assert_eq!((last.level, last.text.as_str()), (Level::Warn, "Tempo 60 BPM did not land: LV1 took the call, reads 92 BPM"));
+}
+
+#[test]
+fn no_tempo_line_without_one() {
+    let mut m = FakeMixer::default();
+    let log = Arc::new(LogRing::default());
+    let e = Engine::new(log.clone());
+    e.tick(&mut m, 100);
+    assert!(log.snapshot().is_empty(), "an LV1 that can't say its tempo adds nothing");
+    e.on_midi("MIDI A", &cc(16, 21, 60), 200);
+    e.tick(&mut m, 200);
+    assert!(log.snapshot().last().unwrap().text.contains("refused the call, reads nothing"));
 }

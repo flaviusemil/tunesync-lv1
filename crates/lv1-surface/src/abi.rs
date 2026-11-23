@@ -170,6 +170,46 @@ impl MixerControl {
     }
 }
 
+/// `wvMixerNS::WEMixerParamType`: what a WSMixerParam's +0x28 names.
+///
+/// Decoded from MixerCoreSG-win.dll 17.3.50's `ToString(WEMixerParamType)` (the same table
+/// gives the ids the probes used on the rig: 7034 MetersBatch, 7048 RegisterMeters).
+pub mod param {
+    /// LV1's system tempo (Top Bar BPM, Setup > Mixer Settings > Tempo): a
+    /// [`MixerParamDouble`](super::MixerParamDouble) in BPM. Setting it runs
+    /// `WCMixerCore::SetParamMixerSettingsTempo` -> every tempo-listening plug-in.
+    pub const MIXER_SETTING_TEMPO: u32 = 4019;
+}
+
+/// `wvMixerNS::WSMixerParamDouble`, 0x3D bytes: the 0x35-byte WSMixerParam header and a
+/// double. The header is what `WSMixerParamDouble(WEMixerParamType)` writes (Mac
+/// MyMon_Control 17.3.50); `GetParamTrait` / `SetParamMixerSettingsTempo` read and write
+/// the value at +0x35. LV1's own MyMon driver sets the tempo with exactly this.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct MixerParamDouble {
+    pub f00: u32,
+    /// 2
+    pub f04: u32,
+    pub f08: [u8; 0x20],
+    /// +0x28 [`param`]
+    pub type_: u32,
+    /// -1
+    pub f2c: u32,
+    pub f30: u32,
+    /// 1
+    pub f34: u8,
+    /// +0x35
+    pub value: f64,
+}
+const _: () = assert!(std::mem::size_of::<MixerParamDouble>() == 0x3D);
+
+impl MixerParamDouble {
+    pub fn new(type_: u32, value: f64) -> Self {
+        MixerParamDouble { f00: 0, f04: 2, f08: [0; 0x20], type_, f2c: u32::MAX, f30: 0, f34: 1, value }
+    }
+}
+
 /// Copies `s` into a fixed C string field, truncated, NUL-terminated.
 pub fn put_cstr(dst: &mut [u8], s: &str) {
     let b = s.as_bytes();
@@ -200,6 +240,18 @@ mod tests {
         assert_eq!(offset_of!(MixerControl, grp_type), 0x1D0);
         assert_eq!(offset_of!(ControlId, section), 0x10);
         assert_eq!(offset_of!(ControlId, control_id), 0x1C);
+        assert_eq!(offset_of!(MixerParamDouble, type_), 0x28);
+        assert_eq!(offset_of!(MixerParamDouble, f34), 0x34);
+        assert_eq!(offset_of!(MixerParamDouble, value), 0x35);
+    }
+
+    #[test]
+    fn a_double_param_is_what_lv1_builds() {
+        let p = MixerParamDouble::new(param::MIXER_SETTING_TEMPO, 128.0);
+        let b: [u8; 0x3D] = unsafe { std::mem::transmute(p) };
+        assert_eq!(&b[0..8], &[0, 0, 0, 0, 2, 0, 0, 0]);
+        assert_eq!(&b[0x28..0x35], &[0xB3, 0x0F, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 1]);
+        assert_eq!(&b[0x35..], &128.0f64.to_le_bytes());
     }
 
     #[test]

@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use lv1_surface::abi::{ctl, section, MixerControl};
+use lv1_surface::abi::{ctl, param, section, MixerControl};
 use lv1_surface::Lv1;
 use tunesync::apply::{Mixer, ParamRead};
 use tunesync::tune::CID_VALUE;
@@ -69,6 +69,26 @@ impl Mixer for Lv1Mixer {
         }
         send(ctl::RELEASE);
         ok
+    }
+
+    fn tempo(&mut self) -> Option<f64> {
+        self.lv1.get_param_double(param::MIXER_SETTING_TEMPO).ok().flatten()
+    }
+
+    fn set_tempo(&mut self, bpm: f64) -> bool {
+        if !matches!(self.lv1.set_param_double(param::MIXER_SETTING_TEMPO, bpm), Ok(0)) {
+            return false;
+        }
+        // Wait (bounded) until LV1 reads back the new tempo, as `set` does for a control.
+        let until = Instant::now() + SETTLE;
+        while Instant::now() < until {
+            match self.tempo() {
+                Some(t) if (t - bpm).abs() < 1e-6 => break,
+                None => break,
+                _ => std::thread::sleep(Duration::from_millis(2)),
+            }
+        }
+        true
     }
 
     fn track_name(&mut self, tt: u32, ti: u32) -> String {

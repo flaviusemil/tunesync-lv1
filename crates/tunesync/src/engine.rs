@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::apply::{apply, default_ranges, discover, Mixer, TrackRange, TuneInstance};
 use crate::log::{Level, LogRing};
-use crate::midi_map::{interpret, Coalescer, Intent, MsgKind};
+use crate::midi_map::{bpm_text, interpret, tempo_bpm, Coalescer, Intent, MsgKind, TEMPO_CC};
 use crate::settings::Settings;
 use crate::tune::Spelling;
 
@@ -52,6 +52,10 @@ struct State {
     last_ignored_log: Option<u64>,
     status: Status,
     tunes: Vec<TuneInstance>,
+    /// A tempo asked for and not yet set, with who asked; the last one wins.
+    tempo: Option<(f64, String)>,
+    /// LV1's tempo was logged (once, on the first tick).
+    tempo_logged: bool,
 }
 
 impl State {
@@ -103,6 +107,8 @@ impl Engine {
                 last_ignored_log: None,
                 status: Status::default(),
                 tunes: Vec::new(),
+                tempo: None,
+                tempo_logged: false,
             }),
         }
     }
@@ -153,6 +159,12 @@ impl Engine {
                 due = st.ignored_in(now_ms) == 0;
                 line = None;
                 level = Level::Info;
+            } else if m.kind == MsgKind::Tempo {
+                // Not a Tune change: no scan, no window; set on the next tick.
+                st.tempo = Some((tempo_bpm(m.value), source.to_string()));
+                line = Some(format!("{source} {}", m.text));
+                level = Level::Info;
+                due = true;
             } else {
                 if m.kind != MsgKind::OutOfRange {
                     st.add_source(source);
@@ -197,7 +209,7 @@ impl Engine {
         let mut change = Intent::default();
         let mut source = String::new();
         let mut ignored_line = None;
-        let (scan, fallback) = {
+        let (scan, fallback, tempo, log_tempo) = {
             let mut st = self.lock();
             if st.pending.due_in(now_ms) == Some(0) {
                 change = st.pending.take();
@@ -207,7 +219,7 @@ impl Engine {
             if st.ignored > 0 && st.ignored_in(now_ms) == 0 {
                 let ch = if st.settings.channel == 0 { "any channel".to_string() } else { format!("ch {}", st.settings.channel) };
                 ignored_line = Some(format!(
-                    "ignored {} message{} (not a Note On or CC {} on {ch}), last: {}",
+                    "ignored {} message{} (not a Note On, CC {} or CC {TEMPO_CC} on {ch}), last: {}",
                     st.ignored,
                     if st.ignored == 1 { "" } else { "s" },
                     st.settings.scale_cc,
@@ -216,10 +228,18 @@ impl Engine {
                 st.ignored = 0;
                 st.last_ignored_log = Some(now_ms);
             }
-            (std::mem::take(&mut st.scan_wanted), st.settings.spelling)
+            (std::mem::take(&mut st.scan_wanted), st.settings.spelling, st.tempo.take(), !std::mem::replace(&mut st.tempo_logged, true))
         };
         if let Some(l) = ignored_line.take() {
             self.log.add(Level::Info, l);
+        }
+        if log_tempo {
+            if let Some(t) = mixer.tempo() {
+                self.log.add(Level::Info, format!("LV1 tempo: {} BPM", bpm_text(t)));
+            }
+        }
+        if let Some((bpm, from)) = tempo {
+            self.set_tempo(mixer, bpm, &from);
         }
 
         // LV1 work, outside the lock: a slow scan never blocks a MIDI callback.
@@ -256,6 +276,29 @@ impl Engine {
         }
         let ig = st.ignored_in(now_ms);
         Some(next.map_or(ig, |n| n.min(ig)))
+    }
+
+    // Sets LV1's tempo and says whether it landed.
+    fn set_tempo(&self, mixer: &mut dyn Mixer, bpm: f64, from: &str) {
+        let was = mixer.tempo();
+        let took = mixer.set_tempo(bpm);
+        let now = mixer.tempo();
+        let was_txt = was.map(|w| format!(" (was {})", bpm_text(w))).unwrap_or_default();
+        match now {
+            Some(n) if (n - bpm).abs() < 0.01 && was.is_some_and(|w| (w - bpm).abs() < 0.01) => {
+                self.log.add(Level::Ok, format!("Tempo {} BPM: already there ({from})", bpm_text(bpm)))
+            }
+            Some(n) if (n - bpm).abs() < 0.01 => self.log.add(Level::Ok, format!("Tempo {} BPM{was_txt} ({from})", bpm_text(bpm))),
+            _ => self.log.add(
+                Level::Warn,
+                format!(
+                    "Tempo {} BPM did not land: LV1 {}, reads {}",
+                    bpm_text(bpm),
+                    if took { "took the call" } else { "refused the call" },
+                    now.map(|n| format!("{} BPM", bpm_text(n))).unwrap_or_else(|| "nothing".into())
+                ),
+            ),
+        }
     }
 
     pub fn status(&self) -> Status {

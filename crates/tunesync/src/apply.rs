@@ -27,6 +27,15 @@ pub trait Mixer {
     fn set(&mut self, track_type: u32, track_index: u32, slot: u32, param: i32, value: f64) -> bool;
     /// The track's user name, "" when it has none.
     fn track_name(&mut self, track_type: u32, track_index: u32) -> String;
+    /// LV1's system tempo in BPM; `None` when it can't be read.
+    fn tempo(&mut self) -> Option<f64> {
+        None
+    }
+    /// Sets LV1's system tempo (every tempo-listening plug-in follows). Returns whether
+    /// LV1 took the call; [`Mixer::tempo`] says whether it landed.
+    fn set_tempo(&mut self, _bpm: f64) -> bool {
+        false
+    }
 }
 
 /// Which tracks to look at. Track types: 0 Ch, 1 Gp, 2 Fx (LV1's WSTrackID).

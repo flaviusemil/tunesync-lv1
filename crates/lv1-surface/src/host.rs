@@ -14,7 +14,7 @@
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use crate::abi::{CoreCallbacks, HostFn, MixerControl, CALLBACK_EXPORTS};
+use crate::abi::{CoreCallbacks, HostFn, MixerControl, MixerParamDouble, CALLBACK_EXPORTS};
 use crate::os;
 
 /// A call into LV1 faulted (the exception code on Windows).
@@ -70,6 +70,26 @@ impl Lv1 {
     pub fn set_control(&self, c: &MixerControl) -> Result<i32, Fault> {
         let mut copy = *c; // LV1 takes a const pointer; never hand it our caller's memory
         self.call(self.cb.set_mixer_control, &mut copy as *mut MixerControl as *mut c_void)
+    }
+
+    /// GetMixerParam of a double-valued param ([`crate::abi::param`]). LV1 writes the whole
+    /// struct for the type with no size check, so it gets room to spare.
+    pub fn get_param_double(&self, type_: u32) -> Result<Option<f64>, Fault> {
+        #[repr(C, packed)]
+        struct Roomy {
+            p: MixerParamDouble,
+            spare: [u8; 0xC3],
+        }
+        let mut b = Roomy { p: MixerParamDouble::new(type_, f64::NAN), spare: [0; 0xC3] };
+        let rc = self.call(self.cb.get_mixer_param, &mut b as *mut Roomy as *mut c_void)?;
+        let v = b.p.value;
+        Ok((rc == 0 && v.is_finite()).then_some(v))
+    }
+
+    /// SetMixerParam of a double-valued param. Ok(LV1's return code; 0 = taken).
+    pub fn set_param_double(&self, type_: u32, value: f64) -> Result<i32, Fault> {
+        let mut p = MixerParamDouble::new(type_, value);
+        self.call(self.cb.set_mixer_param, &mut p as *mut MixerParamDouble as *mut c_void)
     }
 
     /// The first fault's code, if a call ever faulted.
