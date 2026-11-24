@@ -29,7 +29,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use tunesync::tune::Spelling;
-use tunesync_host::mac::{is_main_thread, main_async, to_string, CfString};
+use tunesync_host::mac::{is_main_thread, main_after, main_async, to_string, CfString};
 use tunesync_host::sys::Worker;
 use tunesync_host::Runtime;
 use tunesync_ui::draw::theme;
@@ -120,7 +120,7 @@ impl Window {
 
 /// The feeder: runs the window's commands and builds its model, off the main thread.
 fn feed(sh: Arc<Shared>) {
-    let ips = crate::model::local_ips();
+    let mut ips = crate::model::LocalIps::default();
     let mut last: Option<Model> = None;
     while sh.run.load(Ordering::SeqCst) {
         let (cmds, visible) = {
@@ -137,7 +137,8 @@ fn feed(sh: Arc<Shared>) {
             last = None;
             continue;
         }
-        let m = crate::model::build(&sh.rt, (sh.problem)(), &ips);
+        let list = ips.get(&sh.rt).to_vec();
+        let m = crate::model::build(&sh.rt, (sh.problem)(), &list);
         if forced || last.as_ref() != Some(&m) {
             last = Some(m.clone());
             post_model(sh.clone(), m);
@@ -150,6 +151,24 @@ fn feed(sh: Arc<Shared>) {
             run_command(&sh.rt, c);
         }
     }
+}
+
+/// One frame-timer tick, 33 ms from now (again later if the window's state is held then).
+fn tick_after(sh: Arc<Shared>) {
+    main_after(33, move || {
+        with_pool(|| {
+            if BUSY.load(Ordering::SeqCst) {
+                tick_after(sh);
+                return;
+            }
+            guarded((), || {
+                if let Some(ui) = ui_for(&sh) {
+                    ui.anim = false;
+                    ui.relayout();
+                }
+            })
+        })
+    });
 }
 
 /// Hands a new model to the window on the main queue (again later if the window's state
@@ -203,6 +222,8 @@ struct Ui {
     painter: Painter,
     field_shown: bool,
     field_rect: NSRect,
+    /// A frame-timer tick is queued ([`Ui::animate`]).
+    anim: bool,
 }
 
 /// The one Ui (main thread only; null when no surface owns the window).
@@ -270,6 +291,7 @@ fn show_held(sh: Arc<Shared>) {
             painter: Painter::default(),
             field_shown: false,
             field_rect: NSRect::default(),
+            anim: false,
         });
         UI.store(Box::into_raw(ui), Ordering::SeqCst);
     }
@@ -324,9 +346,24 @@ impl Ui {
     /// A new frame from the model and the view state, the text field placed, and a repaint.
     fn relayout(&mut self) {
         self.size = self.view_size();
+        self.state.now_ms = self.sh.rt.now_ms();
         self.frame = layout(&self.model, &self.state, self.size.0, self.size.1);
         self.place_field();
         unsafe { msg![(); self.view, "setNeedsDisplay:", true => bool] };
+        if self.frame.animating {
+            self.animate();
+        }
+    }
+
+    /// The frame timer, while something moves (a dot's ripple, a breathing peer dot): one
+    /// relayout ~30 times a second, as the Windows window's TIMER_ANIM does. It stops by
+    /// itself when nothing moves or the window is hidden; the next relayout starts it again.
+    fn animate(&mut self) {
+        if self.anim || unsafe { msg![i8; self.win, "isVisible"] } == 0 {
+            return;
+        }
+        self.anim = true;
+        tick_after(self.sh.clone());
     }
 
     fn place_field(&mut self) {
@@ -470,6 +507,7 @@ extern "C" fn mouse_dragged(this: Id, _cmd: Sel, event: Id) {
     guarded((), || {
         let Some(ui) = ui_of(this) else { return };
         let (x, y) = ui.point(event);
+        ui.state.now_ms = ui.sh.rt.now_ms(); // a flick is timed
         ui.state.pointer_move(x, y);
         ui.relayout();
     })

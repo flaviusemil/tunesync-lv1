@@ -374,6 +374,13 @@ fn checks() -> i32 {
             counts(v.as_mut_ptr());
             v
         };
+        let status_fn: unsafe extern "C" fn(*mut u8, *mut u8, *mut u8, usize) -> u32 = std::mem::transmute(csym("fakecore_status"));
+        let status_and_picture = || {
+            let (mut ty, mut st, mut pic) = ([0u8; 1024], [0u8; 1024], [0u8; 1024]);
+            let color = status_fn(ty.as_mut_ptr(), st.as_mut_ptr(), pic.as_mut_ptr(), 1024);
+            let text = |b: &[u8]| String::from_utf8_lossy(&b[..b.iter().position(|&x| x == 0).unwrap_or(0)]).into_owned();
+            ((text(&ty), text(&st), color), text(&pic))
+        };
         reset();
 
         let create: Create = std::mem::transmute(f("WMSD_CreateControllerForType"));
@@ -384,6 +391,11 @@ fn checks() -> i32 {
         c.check(t0.elapsed() < Duration::from_millis(200), "Create did not block LV1's thread");
         let ctrl_addr = ctrl as usize;
         c.check(wait_for(5000, || count()[0] > 160 * 8), &format!("the first scan ran ({} reads)", count()[0]));
+        // LV1's Control Surfaces status and the tile picture, from the bundle's Resources
+        // (build-mac.sh puts it there). "lv1sim MIDI" is TuneSync's MIDI in, so not "N/A".
+        wait_for(2000, || !status_and_picture().0 .0.is_empty());
+        let pic = status_and_picture().1;
+        c.check(pic.ends_with("/Contents/Resources/tunesync-surface.png") && std::path::Path::new(&pic).is_file(), &format!("the tile picture is sent: {pic}"));
 
         // RTP-MIDI: a playback rig joins and sends the cue.
         let rig = Session::new();
@@ -394,11 +406,18 @@ fn checks() -> i32 {
             rig.peers().iter().any(|p| p.state == PeerState::Connected)
         });
         c.check(joined, "a rig joined TuneSync's RTP-MIDI session");
+        let on = wait_for(2000, || {
+            rig.poll(5);
+            status_and_picture().0 .1 == "ON"
+        });
+        let st = status_and_picture().0;
+        c.check(on && st == ("TuneSync".into(), "ON".into(), 0x00FF00), &format!("Control Surfaces shows {st:?} with inputs connected"));
         let t1 = Instant::now();
         rig.send(&[&[0xBF, 20, 4], &[0x9F, 62, 100]]);
         let applied = wait_for(3000, || {
             rig.poll(5);
-            param(0, 42, 0, 40) == 3.0 && param(0, 43, 2, 40) == 3.0
+            // key and scale: each Control lands on its own, a moment apart
+            param(0, 42, 0, 40) == 3.0 && param(0, 43, 2, 40) == 3.0 && param(0, 42, 0, 39) == 4.0 && param(0, 43, 2, 39) == 4.0
         });
         c.check(applied, &format!("RTP: CC 20 = 4 + Note On D: Ch 43 and Ch 44 -> D in {} ms", t1.elapsed().as_millis()));
         c.check(param(0, 42, 0, 39) == 4.0 && param(0, 43, 2, 39) == 4.0, "both on Harmonic Minor");

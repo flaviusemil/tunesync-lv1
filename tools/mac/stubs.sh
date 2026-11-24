@@ -8,6 +8,7 @@
 #   _CF* _kCF*     CoreFoundation        _CG* _kCG*      CoreGraphics
 #   _CT* _kCT*     CoreText              _MIDI* _kMIDI*  CoreMIDI
 #   _NSPasteboardTypeString _NSAppearanceNameDarkAqua    AppKit
+#   _iconv* _libiconv*  libiconv (its own dylib; the libc crate asks for -liconv on Apple)
 #   anything else  libSystem (libc, pthreads, libdispatch, dns_sd, Mach, dyld, ...: all
 #                  re-exported by /usr/lib/libSystem.B.dylib, as in Apple's own SDK)
 # Any other _NS* or _OBJC_* symbol (Foundation, ObjC class references) stops the build:
@@ -45,14 +46,15 @@ stub() {
 }
 
 objc='^_(objc|sel|class|object)_'
-cf='^_k?CF'; cg='^_k?CG'; ct='^_k?CT'; midi='^_k?MIDI'; appkit='^_NS'
+cf='^_k?CF'; cg='^_k?CG'; ct='^_k?CT'; midi='^_k?MIDI'; appkit='^_NS'; iconv='^_(lib)?iconv'
 stub "$sdk/usr/lib/libobjc.tbd" /usr/lib/libobjc.A.dylib "" "$objc"
 stub "$sdk$fw/CoreFoundation.framework/CoreFoundation.tbd" "$fw/CoreFoundation.framework/Versions/A/CoreFoundation" "" "$cf"
 stub "$sdk$fw/CoreGraphics.framework/CoreGraphics.tbd" "$fw/CoreGraphics.framework/Versions/A/CoreGraphics" "" "$cg"
 stub "$sdk$fw/CoreText.framework/CoreText.tbd" "$fw/CoreText.framework/Versions/A/CoreText" "" "$ct"
 stub "$sdk$fw/CoreMIDI.framework/CoreMIDI.tbd" "$fw/CoreMIDI.framework/Versions/A/CoreMIDI" "" "$midi"
 stub "$sdk$fw/AppKit.framework/AppKit.tbd" "$fw/AppKit.framework/Versions/C/AppKit" "" "$appkit"
+stub "$sdk/usr/lib/libiconv.tbd" /usr/lib/libiconv.2.dylib "" "$iconv"
 # dyld_stub_binder: the linker's own reference for lazy binding (x86_64), not an import nm lists
-stub "$sdk/usr/lib/libSystem.tbd" /usr/lib/libSystem.B.dylib dyld_stub_binder -v "$objc|$cf|$cg|$ct|$midi|$appkit"
+stub "$sdk/usr/lib/libSystem.tbd" /usr/lib/libSystem.B.dylib dyld_stub_binder -v "$objc|$cf|$cg|$ct|$midi|$appkit|$iconv"
 ln -sf libSystem.tbd "$sdk/usr/lib/libc.tbd"
 ln -sf libSystem.tbd "$sdk/usr/lib/libm.tbd"

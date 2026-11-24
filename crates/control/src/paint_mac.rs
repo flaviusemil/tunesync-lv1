@@ -44,6 +44,7 @@ extern "C" {
     fn CGContextSetStrokeColor(c: CGContextRef, comps: *const f64);
     fn CGContextFillRect(c: CGContextRef, r: NSRect);
     fn CGContextFillEllipseInRect(c: CGContextRef, r: NSRect);
+    fn CGContextStrokeEllipseInRect(c: CGContextRef, r: NSRect);
     fn CGContextAddPath(c: CGContextRef, p: CFTypeRef);
     fn CGContextFillPath(c: CGContextRef);
     fn CGContextStrokePath(c: CGContextRef);
@@ -269,6 +270,13 @@ impl Painter {
                     }
                     CGContextSetFillColor(ctx, rgba(*color).as_ptr());
                     CGContextFillEllipseInRect(ctx, NSRect::new(cx - rad, cy - rad, rad * 2.0, rad * 2.0));
+                }
+                Item::Ring { cx, cy, radius, width, color } => {
+                    // centred on the circle, as Direct2D's DrawEllipse strokes it
+                    let (cx, cy, rad) = (*cx as f64, *cy as f64, *radius as f64);
+                    CGContextSetStrokeColor(ctx, rgba(*color).as_ptr());
+                    CGContextSetLineWidth(ctx, *width as f64);
+                    CGContextStrokeEllipseInRect(ctx, NSRect::new(cx - rad, cy - rad, rad * 2.0, rad * 2.0));
                 }
                 Item::Clip { r } => {
                     CGContextSaveGState(ctx);

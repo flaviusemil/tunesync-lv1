@@ -92,6 +92,9 @@ cat > "$SIM/lv1sim.app/Contents/Info.plist" <<PLIST
 PLIST
 sed -e "s/@VERSION@/$VER/g" -e "s/@MINOS@/$MINOS/g" "$ROOT/installer/mac/Info.plist" > "$B/Contents/Info.plist"
 cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$B/Contents/Resources/"
+# The picture LV1 shows on TuneSync's tile (Setup > System Inventory > CONTROLS): the bundle
+# sends its path when the file is in Resources; Qt takes the @2x on a Retina screen.
+cp "$ROOT"/assets/lv1-surface/tunesync-surface.png "$ROOT"/assets/lv1-surface/tunesync-surface@2x.png "$B/Contents/Resources/"
 
 # Each slice must export LV1's 18 WMSD_* functions (and nothing of ours besides).
 if [ "$(uname)" = Darwin ]; then NM=nm; else NM=llvm-nm-18; fi

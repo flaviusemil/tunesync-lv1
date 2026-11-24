@@ -31,14 +31,15 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The surface type LV1 stores and finds TuneSync's status row by.
 pub const SURFACE_TYPE: &str = "TuneSync";
 
-/// The picture on TuneSync's tile in LV1's Setup > System Inventory > CONTROLS, beside the
-/// DLL (the installer puts it and its @2x there; `assets/lv1-surface`).
+/// The picture on TuneSync's tile in LV1's Setup > System Inventory > CONTROLS
+/// (`assets/lv1-surface`): beside the DLL on Windows (the installer puts it and its @2x
+/// there), in the bundle's Contents/Resources on macOS (build-mac.sh puts them there).
 pub const PICTURE: &str = "tunesync-surface.png";
 
 /// The tile picture's absolute path, "" when it is missing (LV1 would show an empty frame,
 /// not its own picture) or not plain ASCII (how LV1 turns the bytes into text is unknown).
 pub fn picture() -> String {
-    own_dir()
+    picture_dir()
         .map(|d| d.join(PICTURE))
         .filter(|p| p.is_file())
         .map(|p| p.to_string_lossy().into_owned())
@@ -46,15 +47,15 @@ pub fn picture() -> String {
         .unwrap_or_default()
 }
 
-/// The folder this DLL was loaded from.
+/// Where the picture is: the folder this DLL was loaded from.
 #[cfg(windows)]
-fn own_dir() -> Option<std::path::PathBuf> {
+fn picture_dir() -> Option<std::path::PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
     let mut m = HMODULE::default();
-    let here = own_dir as fn() -> Option<std::path::PathBuf> as *const u16;
+    let here = picture_dir as fn() -> Option<std::path::PathBuf> as *const u16;
     // SAFETY: `here` is an address inside this DLL; the handle is only used to ask its path.
     unsafe { GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, PCWSTR(here), &mut m) }.ok()?;
     let mut buf = [0u16; 1024];
@@ -66,9 +67,36 @@ fn own_dir() -> Option<std::path::PathBuf> {
     std::path::PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])).parent().map(|p| p.to_path_buf())
 }
 
-/// Elsewhere (tests; the Mac build has its bundle's Resources folder): no picture yet.
-#[cfg(not(windows))]
-fn own_dir() -> Option<std::path::PathBuf> {
+/// Where the picture is: the bundle's Contents/Resources, found from the executable this
+/// code was loaded from (`.../TuneSync_Control.bundle/Contents/MacOS/TuneSync_Control`).
+#[cfg(target_os = "macos")]
+fn picture_dir() -> Option<std::path::PathBuf> {
+    use std::ffi::{c_char, c_int, c_void, CStr, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+    #[repr(C)]
+    struct DlInfo {
+        fname: *const c_char,
+        fbase: *mut c_void,
+        sname: *const c_char,
+        saddr: *mut c_void,
+    }
+    extern "C" {
+        fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
+    }
+    let mut info = DlInfo { fname: std::ptr::null(), fbase: std::ptr::null_mut(), sname: std::ptr::null(), saddr: std::ptr::null_mut() };
+    let here = picture_dir as fn() -> Option<std::path::PathBuf> as *const c_void;
+    // SAFETY: `here` is an address in this image; dladdr fills `info` (fname stays valid
+    // while the image is loaded, and is copied at once).
+    if unsafe { dladdr(here, &mut info) } == 0 || info.fname.is_null() {
+        return None;
+    }
+    let exe = std::path::PathBuf::from(OsStr::from_bytes(unsafe { CStr::from_ptr(info.fname) }.to_bytes()));
+    Some(exe.parent()?.parent()?.join("Resources"))
+}
+
+/// Elsewhere (the Linux tests): no picture.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn picture_dir() -> Option<std::path::PathBuf> {
     None
 }
 

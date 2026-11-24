@@ -181,7 +181,7 @@ follow:
 The artwork is in `assets/lv1-surface`: an SVG, rendered to 100x64 and 200x128 by `render.sh`.
 LV1's picture is a 200x128 drawing (2x) on a dark vertical gradient, light artwork, square
 corners. The installer puts `tunesync-surface.png` and `tunesync-surface@2x.png` beside the DLL
-in Modules, where TuneSync looks for them. On a HiDPI screen Qt picks the @2x file beside the
+in Modules, where TuneSync looks for them (on macOS: in the bundle's `Contents/Resources`). On a HiDPI screen Qt picks the @2x file beside the
 one named. TuneSync sends the path only when it is plain ASCII, because how LV1 turns the bytes
 into text is not known. Read in LV1 17.3.50's Mac GUI; MixerCoreSG keeps and returns the string
 the same way on Windows.
@@ -335,6 +335,10 @@ but none has run on a Mac yet.
 - Its install name is `@rpath/TuneSync_Control`.
 - It is ad-hoc signed: one signature per slice, sealing `Info.plist` and the resources, the
   same as `codesign -s -`.
+- `Contents/Resources` holds the licences and LV1's tile picture (`tunesync-surface.png` and
+  its @2x, see "TuneSync's picture" above). TuneSync finds its own bundle with `dladdr` on
+  its own code and sends that path. The colour in the SurfaceStatus param is 8 bytes on macOS
+  (a `long`), so the status and the picture sit at +0x459 / +0x481.
 
 LV1 has no hardened runtime (code-signature flags 0x0, no entitlements in 17.3.50), so
 library validation does not apply and an ad-hoc signature is enough. On Apple silicon the kernel requires some signature on arm64 code, and the ad-hoc
@@ -347,7 +351,10 @@ queue (`dispatch_async_f`), and Qt's event loop drains that queue in every run-l
 modal dialogs included. The main thread does no TuneSync work either: a feeder thread
 builds the window's model and runs its commands, then posts the result. Building a model
 takes the runtime's locks, and an RTP-MIDI restart can hold one for a second. That wait
-stays on the feeder.
+stays on the feeder. While something on the page moves (`Frame::animating`), the window
+relayouts every 33 ms through `dispatch_after_f` on the main queue, as the Windows window's
+frame timer does. It stops by itself when nothing moves or the window is hidden. Every relayout
+and drag gives the view the time, so ripples run and a flick can close a sheet.
 
 **MIDI in: CoreMIDI** (`crates/host/src/midi/coremidi.rs`, from Headlink's
 `tools/preprobe/midiport.cpp`):

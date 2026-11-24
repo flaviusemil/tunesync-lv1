@@ -27,6 +27,8 @@ extern "C" {
 extern "C" {
     static _dispatch_main_q: u8;
     fn dispatch_async_f(queue: *const c_void, ctx: *mut c_void, work: extern "C" fn(*mut c_void));
+    fn dispatch_after_f(when: u64, queue: *const c_void, ctx: *mut c_void, work: extern "C" fn(*mut c_void));
+    fn dispatch_time(when: u64, delta_ns: i64) -> u64;
     fn pthread_main_np() -> i32;
 }
 
@@ -93,4 +95,14 @@ extern "C" fn run_job(ctx: *mut c_void) {
 pub fn main_async(f: impl FnOnce() + Send + 'static) {
     let job: Box<Job> = Box::new(Box::new(f));
     unsafe { dispatch_async_f(&_dispatch_main_q as *const u8 as *const c_void, Box::into_raw(job) as *mut c_void, run_job) };
+}
+
+/// Runs `f` on the main queue in `ms` milliseconds (a window's frame timer). Returns at once.
+pub fn main_after(ms: u64, f: impl FnOnce() + Send + 'static) {
+    let job: Box<Job> = Box::new(Box::new(f));
+    const DISPATCH_TIME_NOW: u64 = 0;
+    unsafe {
+        let when = dispatch_time(DISPATCH_TIME_NOW, (ms as i64).saturating_mul(1_000_000));
+        dispatch_after_f(when, &_dispatch_main_q as *const u8 as *const c_void, Box::into_raw(job) as *mut c_void, run_job);
+    }
 }
