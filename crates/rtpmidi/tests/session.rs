@@ -636,6 +636,11 @@ fn session_to_session() {
     let c = Session::new();
     let err = c.open(SessionConfig { port: bport, ..Default::default() }).unwrap_err();
     assert!(err.contains("in use"), "{err}");
+    // ... and moves up a pair when it may: the port in use is skipped.
+    let moved = c.open_from(SessionConfig { port: bport, ..Default::default() }, 8).unwrap();
+    assert!(moved > bport && (moved - bport).is_multiple_of(2), "{bport} -> {moved}");
+    assert_eq!(c.port(), moved);
+    c.close();
     a.close();
     assert!(until(1000, || { b.poll(1); b.peers().is_empty() }), "a's goodbye reaches b");
 }

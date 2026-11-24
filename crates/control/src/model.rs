@@ -53,6 +53,7 @@ pub fn build(rt: &Runtime, lv1_problem: Option<String>, local_ips: &[String]) ->
         midi_at_ms: last_midi,
         rtp: RtpModel {
             open: rv.open,
+            port: rv.open_port,
             error: rv.error.clone(),
             active: rv.last_midi_ms != 0 && now.saturating_sub(rv.last_midi_ms) < ACTIVE_MS,
             advert: rv.advert.clone(),

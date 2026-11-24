@@ -324,3 +324,22 @@ fn a_sheet_pulled_by_its_rows() {
     assert!(drag(&mut v, &m, r.x + 10.0, r.y + 10.0, 140.0, 10, 30).is_empty(), "no Copy");
     assert_eq!(v.sheet, None);
 }
+
+/// Another session held the port in the settings: the RTP sheet shows the pair the session
+/// moved to (and why), and the "add it by hand" lines name the port really in use.
+#[test]
+fn a_taken_port_shows_where_the_session_went() {
+    let mut m = model();
+    m.settings.rtp_enabled = true;
+    m.settings.rtp_port = 5004;
+    m.local_ips = vec!["192.0.2.172 (WiFi)".into()];
+    m.rtp.port = 5006;
+    let mut v = View::new();
+    tap(&mut v, &m, &Hit::RtpTile);
+    let t = texts(&layout(&m, &v, WIDTH, 2000.0));
+    assert!(t.iter().any(|s| s == "5006  (and 5007)  ·  5004 was taken"), "{t:?}");
+    assert!(t.iter().any(|s| s == "192.0.2.172 (WiFi), port 5006"), "{t:?}");
+    m.rtp.port = 5004;
+    let t = texts(&layout(&m, &v, WIDTH, 2000.0));
+    assert!(t.iter().any(|s| s == "5004  (and 5005)") && t.iter().any(|s| s == "192.0.2.172 (WiFi), port 5004"), "{t:?}");
+}

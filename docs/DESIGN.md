@@ -279,6 +279,15 @@ The window is about 480 px wide. From top to bottom:
     dual stack (`[::]:5004` with IPV6_V6ONLY off, through `socket2`), falling back to IPv4
     only on a system without IPv6. IPv4 peers keep their plain address (`192.0.2.42`, not
     `::ffff:…`); a link-local IPv6 peer keeps its interface (`fe80::…%3`) so it can be answered.
+  - **A taken port.** Another RTP-MIDI session often holds 5004: macOS's own network MIDI on
+    a Mac (seen on the first Mac test), rtpMIDI on Windows. When the pair in the settings is
+    in use, or not allowed (a Windows excluded port range), the session moves up a pair at a
+    time: 5006/5007, 5008/5009, and so on, 8 pairs in all. It logs `UDP 5004 is taken (another
+    RTP-MIDI session?), so session "TuneSync" is open on UDP 5006/5007 instead`. DNS-SD
+    advertises the port it got, so Macs find it as before. The RTP-MIDI sheet shows
+    `5006 (and 5007) · 5004 was taken`, and its "add it by hand" lines name 5006. The setting
+    stays 5004, so the next start tries 5004 again. Any other error, or all 8 pairs taken,
+    leaves RTP-MIDI closed with the reason shown, as before.
   - If the Windows API misbehaves on a host, there are two other routes: preprobe's own mDNS
     code (`discover.*`, which browses with legacy-unicast queries) and a small responder of
     our own. Not tested yet on the LV1 hosts.
@@ -369,7 +378,8 @@ and drag gives the view the time, so ripples run and a flick can close a sheet.
   loading a session. Only after 30 s does it make the client itself.
 - The Mac's own network session (Audio MIDI Setup → Network, "Network Session 1") is a
   CoreMIDI source too. On a Mac, LV1 can therefore take network MIDI without TuneSync's
-  RTP-MIDI. If both run, they compete for UDP 5004: give TuneSync another port.
+  RTP-MIDI. If both run, the Mac's session holds UDP 5004 and TuneSync moves up a pair by
+  itself (see "A taken port").
 
 **DNS-SD: mDNSResponder** (`crates/host/src/dnssd/macos.rs`, dns_sd.h, in libSystem):
 - The same API as the Windows backend (`start`, `stop`, `found`, `advert_state`).

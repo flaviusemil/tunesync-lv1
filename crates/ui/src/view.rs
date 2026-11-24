@@ -718,7 +718,13 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
             let pr = Rect::new(0.0, y, cw, 44.0);
             rows.bx(pr, 8.0, if rows.is_pressed(&Hit::RtpPortField) { PRESSED } else { PANEL }, Some(LINE));
             rows.text(Rect::new(12.0, y, 110.0, 44.0), "UDP port", 14.0, 400, DIM, Align::Left);
-            rows.text(Rect::new(124.0, y, cw - 160.0, 44.0), &format!("{}  (and {})", s.rtp_port, s.rtp_port as u32 + 1), 14.0, 400, FG, Align::Left);
+            // a port taken by another session: the pair it moved to, and why
+            let shown = if m.rtp.open && m.rtp.port != 0 && m.rtp.port != s.rtp_port {
+                format!("{}  (and {})  ·  {} was taken", m.rtp.port, m.rtp.port as u32 + 1, s.rtp_port)
+            } else {
+                format!("{}  (and {})", s.rtp_port, s.rtp_port as u32 + 1)
+            };
+            rows.text(Rect::new(124.0, y, cw - 160.0, 44.0), &shown, 14.0, 400, FG, Align::Left);
             rows.text(Rect::new(cw - 24.0, y, 16.0, 44.0), "›", 18.0, 400, DIM, Align::Center);
             rows.hit(pr, Hit::RtpPortField);
             y += 44.0 + ROW_GAP;
@@ -774,10 +780,11 @@ fn draw_sheet(b: &mut B, m: &Model, v: &View, sheet: &Sheet, w: f32, h: f32) {
                 format!("Macs list \"{}\" by themselves in Audio MIDI Setup →", s.rtp_name),
                 "MIDI Network Setup → Directory. Or add it there by hand:".to_string(),
             ];
+            let port = if m.rtp.open && m.rtp.port != 0 { m.rtp.port } else { s.rtp_port };
             if m.local_ips.is_empty() {
-                lines.push(format!("this PC's address, port {}", s.rtp_port));
+                lines.push(format!("this PC's address, port {port}"));
             }
-            lines.extend(m.local_ips.iter().map(|ip| format!("{ip}, port {}", s.rtp_port)));
+            lines.extend(m.local_ips.iter().map(|ip| format!("{ip}, port {port}")));
             for line in lines {
                 rows.text(Rect::new(0.0, y, cw, 20.0), &line, 12.5, 400, DIM, Align::Left);
                 y += 20.0;

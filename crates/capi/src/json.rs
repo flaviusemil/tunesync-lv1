@@ -146,6 +146,7 @@ pub fn status(rt: &Runtime) -> String {
             .str("error", &v.error)
             .str("name", &v.name)
             .int("port", v.port)
+            .int("open_port", v.open_port)
             .str("advert", &v.advert)
             .int("session_now_ms", v.session_now_ms)
             .int("last_midi_ms", v.last_midi_ms)

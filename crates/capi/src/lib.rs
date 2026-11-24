@@ -336,8 +336,10 @@ pub unsafe extern "C" fn ts_settings_set(rt: *mut TsRuntime, ini: *const c_char)
 /// The status as JSON: `{"now_ms","tunes","locked","changes","scans","last_midi_ms",
 /// "last_source","last_result","last":{"label","stamp","source","brief","problem"}|null,
 /// "midi":{"ports","open","last_ms"}|null, "rtp":{"enabled","open","error","name","port",
-/// "advert","session_now_ms","last_midi_ms","peers","found"}|null}`. `midi`/`rtp` are null
-/// when started without them; `changes` counts applied changes (redraw when it moves).
+/// "open_port","advert","session_now_ms","last_midi_ms","peers","found"}|null}`. `midi`/`rtp`
+/// are null when started without them; `changes` counts applied changes (redraw when it
+/// moves). `rtp.port` is the setting, `rtp.open_port` the port the session opened (0 when
+/// closed): a pair up from `port` when another session held that one.
 /// NULL on a bad handle. Free with ts_string_free.
 #[no_mangle]
 pub unsafe extern "C" fn ts_status_json(rt: *mut TsRuntime) -> *mut c_char {

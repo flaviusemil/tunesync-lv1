@@ -34,6 +34,9 @@ pub struct Model {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RtpModel {
     pub open: bool,
+    /// The control port the session opened: the one in the settings, or a pair up when
+    /// that one was taken (0 = closed).
+    pub port: u16,
     /// Why it is not open ("UDP port 5004 is in use ...").
     pub error: String,
     /// MIDI arrived over the network in the last few seconds.

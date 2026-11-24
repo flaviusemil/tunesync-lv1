@@ -90,14 +90,18 @@ fn rtp_note_sets_every_unlocked_tune() {
     assert_eq!((t[0].label.as_str(), t[0].name.as_str(), t[0].receive), ("Ch 43", "Vox 1", true));
     assert!(!t[1].receive, "Ch 45 is on Lock");
 
-    // RTP-MIDI on a test port, as the window's switch would.
+    // RTP-MIDI on a test port, as the window's switch would; another session already holds
+    // that port (macOS's own network MIDI does 5004), so TuneSync moves up a pair.
     let port = 47504u16;
+    let other_session = std::net::UdpSocket::bind(("0.0.0.0", port)).unwrap();
     rt.update(|s| {
         s.rtp_enabled = true;
         s.rtp_port = port;
     });
     assert!(wait_for(2000, || rt.rtp().open), "session open: {}", rt.rtp().error);
-    assert!(std::fs::read_to_string(dir.join("settings.ini")).unwrap().contains(&format!("rtp_port={port}")), "settings saved");
+    assert_eq!((rt.rtp().port, rt.rtp().open_port), (port, port + 2), "the setting, and the pair opened");
+    assert!(std::fs::read_to_string(dir.join("settings.ini")).unwrap().contains(&format!("rtp_port={port}")), "settings saved, unchanged");
+    let port = port + 2; // where the rig finds TuneSync (DNS-SD advertises this one)
 
     // A playback rig joins and sends the cue: CC 20 = 4 (Harmonic Minor) + Note On D.
     let rig = Session::new();
@@ -124,7 +128,9 @@ fn rtp_note_sets_every_unlocked_tune() {
 
     rig.close();
     rt.stop();
+    drop(other_session);
     let log = std::fs::read_to_string(dir.join("tunesync.log")).unwrap();
+    assert!(log.contains(&format!("UDP {} is taken", port - 2)) && log.contains(&format!("open on UDP {port}/{} instead", port + 1)), "{log}");
     assert!(log.contains("D Harmonic Minor: set 1") && log.contains("skipped 1 locked"), "{log}");
     assert!(log.contains("TuneSync stopping"));
     let _ = std::fs::remove_dir_all(&dir);

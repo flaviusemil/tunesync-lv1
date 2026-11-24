@@ -23,7 +23,11 @@ pub struct RtpView {
     /// Why it is not open.
     pub error: String,
     pub name: String,
+    /// The port in the settings.
     pub port: u16,
+    /// The control port the session opened (0 = closed): `port`, or a pair up from it
+    /// when that one was taken ([`PORT_TRIES`]).
+    pub open_port: u16,
     /// DNS-SD: "advertised", "not available on this Windows", ...
     pub advert: String,
     pub peers: Vec<PeerView>,
@@ -43,6 +47,7 @@ struct Want {
     changed: bool,
     cmds: VecDeque<(bool, String, u16, String)>, // (connect?, ip, port, label)
     open: bool,
+    open_port: u16,
     error: String,
 }
 
@@ -121,7 +126,7 @@ impl RtpService {
     pub fn view(&self) -> RtpView {
         let mut v = {
             let w = self.sh.want.lock().unwrap_or_else(|e| e.into_inner());
-            RtpView { enabled: w.enabled, open: w.open, error: w.error.clone(), name: w.name.clone(), port: w.port, ..Default::default() }
+            RtpView { enabled: w.enabled, open: w.open, error: w.error.clone(), name: w.name.clone(), port: w.port, open_port: w.open_port, ..Default::default() }
         };
         if v.open {
             v.peers = self.sh.session.peers();
@@ -134,6 +139,11 @@ impl RtpService {
         v
     }
 }
+
+/// How many port pairs the session tries, 2 apart, when the one in the settings is taken
+/// (5004, 5006, ... 5018): another RTP-MIDI session often holds 5004 (macOS's own network
+/// MIDI session, rtpMIDI on Windows).
+pub const PORT_TRIES: u16 = 8;
 
 fn run(sh: Arc<Shared>) {
     while sh.run.load(Ordering::SeqCst) {
@@ -148,11 +158,17 @@ fn run(sh: Arc<Shared>) {
                 (sh.log)("RTP-MIDI: session closed", false);
             }
             let mut err = String::new();
+            let mut opened = 0;
             if enabled {
-                match sh.session.open(SessionConfig { name: name.clone(), port, clock10k: Some(Arc::new(now_10k)), ..Default::default() }) {
-                    Ok(()) => {
-                        (sh.log)(&format!("RTP-MIDI: session \"{name}\" open on UDP {port}/{}", port + 1), false);
-                        sh.dnssd.lock().unwrap_or_else(|e| e.into_inner()).start(&name, port, sh.log.clone());
+                match sh.session.open_from(SessionConfig { name: name.clone(), port, clock10k: Some(Arc::new(now_10k)), ..Default::default() }, PORT_TRIES) {
+                    Ok(got) => {
+                        opened = got;
+                        if got == port {
+                            (sh.log)(&format!("RTP-MIDI: session \"{name}\" open on UDP {got}/{}", got + 1), false);
+                        } else {
+                            (sh.log)(&format!("RTP-MIDI: UDP {port} is taken (another RTP-MIDI session?), so session \"{name}\" is open on UDP {got}/{} instead", got + 1), false);
+                        }
+                        sh.dnssd.lock().unwrap_or_else(|e| e.into_inner()).start(&name, got, sh.log.clone());
                         for p in &peers {
                             sh.session.invite(&p.ip, p.port, &p.name);
                         }
@@ -165,6 +181,7 @@ fn run(sh: Arc<Shared>) {
             }
             let mut w = sh.want.lock().unwrap_or_else(|e| e.into_inner());
             w.open = sh.session.is_open();
+            w.open_port = if w.open { opened } else { 0 };
             w.error = err;
         }
         for (connect, ip, port, label) in cmds {
@@ -183,5 +200,7 @@ fn run(sh: Arc<Shared>) {
     }
     sh.dnssd.lock().unwrap_or_else(|e| e.into_inner()).stop();
     sh.session.close();
-    sh.want.lock().unwrap_or_else(|e| e.into_inner()).open = false;
+    let mut w = sh.want.lock().unwrap_or_else(|e| e.into_inner());
+    w.open = false;
+    w.open_port = 0;
 }

@@ -243,6 +243,17 @@ fn bind_dual(port: u16) -> std::io::Result<UdpSocket> {
     Ok(s.into())
 }
 
+/// Control on `port`, data on `port + 1`: dual stack when the system has IPv6, else IPv4
+/// only. (The dual attempt's sockets are dropped at the end of its statement, so a half-made
+/// pair is closed before the IPv4 binds.)
+fn bind_pair(port: u16) -> std::io::Result<(UdpSocket, UdpSocket, bool)> {
+    if let (Ok(c), Ok(d)) = (bind_dual(port), bind_dual(port + 1)) {
+        return Ok((c, d, true));
+    }
+    let bind4 = |p: u16| UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, p));
+    Ok((bind4(port)?, bind4(port + 1)?, false))
+}
+
 /// How a peer's address is kept: "192.0.2.42" (also for an IPv4 peer that reached a
 /// dual-stack socket as ::ffff:192.0.2.42), "fe80::1%3" for a link-local IPv6 peer (the
 /// scope is the interface, needed to answer it).
@@ -456,34 +467,50 @@ impl Session {
 
     /// Binds control on cfg.port and data on cfg.port + 1, every interface, IPv6 and IPv4.
     pub fn open(&self, cfg: SessionConfig) -> Result<(), String> {
+        self.open_from(cfg, 1).map(|_| ())
+    }
+
+    /// [`open`](Self::open), moving up when cfg.port's pair can't be had: in use (another
+    /// RTP-MIDI session, such as macOS's own network MIDI or rtpMIDI on Windows, holds
+    /// 5004) or not allowed (a Windows excluded port range). It tries the next pairs 2 apart,
+    /// `tries` pairs in all, and stops at any other error. Ok(the control port it opened).
+    pub fn open_from(&self, cfg: SessionConfig, tries: u16) -> Result<u16, String> {
         self.close();
         if cfg.port == 0 || cfg.port == 65535 {
             return Err("bad UDP port".into());
         }
-        let bind4 = |port: u16| {
-            UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).map_err(|e| format!("UDP port {port} is in use or not allowed ({e})"))
-        };
-        // Dual stack when the system has IPv6; else IPv4 only. (The first statement ends
-        // before the fallback binds, so a half-made dual pair is closed by then.)
-        let pair = match (bind_dual(cfg.port), bind_dual(cfg.port + 1)) {
-            (Ok(c), Ok(d)) => Some((c, d)),
-            _ => None,
-        };
-        let (ctl, data, dual) = match pair {
-            Some((c, d)) => (c, d, true),
-            None => (bind4(cfg.port)?, bind4(cfg.port + 1)?, false),
-        };
-        ctl.set_nonblocking(true).map_err(|e| e.to_string())?;
-        {
-            let mut g = self.inner();
-            g.t0 = Instant::now();
-            g.ssrc = g.random32();
-            g.peers.clear();
-            g.strangers.clear();
-            g.cfg = cfg.clone();
+        let mut tried = Vec::new();
+        let mut last = String::new();
+        for i in 0..tries.max(1) {
+            let Some(port) = cfg.port.checked_add(i.saturating_mul(2)).filter(|p| *p < 65535) else { break };
+            match bind_pair(port) {
+                Ok((ctl, data, dual)) => {
+                    ctl.set_nonblocking(true).map_err(|e| e.to_string())?;
+                    {
+                        let mut g = self.inner();
+                        g.t0 = Instant::now();
+                        g.ssrc = g.random32();
+                        g.peers.clear();
+                        g.strangers.clear();
+                        g.cfg = SessionConfig { port, ..cfg.clone() };
+                    }
+                    *self.sock.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(Sockets { ctl, data, port, dual }));
+                    return Ok(port);
+                }
+                Err(e) => {
+                    tried.push(port);
+                    last = e.to_string();
+                    if !matches!(e.kind(), ErrorKind::AddrInUse | ErrorKind::PermissionDenied) {
+                        break;
+                    }
+                }
+            }
         }
-        *self.sock.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(Sockets { ctl, data, port: cfg.port, dual }));
-        Ok(())
+        Err(match tried.as_slice() {
+            [p] => format!("UDP port {p} is in use or not allowed ({last})"),
+            [first, .., end] => format!("UDP ports {first} to {} are all in use or not allowed ({last})", end + 1),
+            [] => format!("no UDP port to try from {}", cfg.port),
+        })
     }
 
     /// BY to every peer that holds a session with us, then the sockets close. The peer
