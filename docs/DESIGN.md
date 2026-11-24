@@ -305,6 +305,7 @@ Ch 1-3 (slot 2):
 | Surface re-created | loading another session destroyed and re-created the surface: stop + start in 32 ms, UDP 5004 re-bound |
 | Control Surfaces status (0.1.9, 2026-11-24) | LV1 lists TuneSync as "ON" in green with the iPad connected over RTP-MIDI; LV1 took every SurfaceStatus param (no refusal logged) |
 | Tile picture (0.1.10, 2026-11-24) | Setup > System Inventory > CONTROLS shows TuneSync's own picture instead of LV1's "Control WSG" one (Windows, 175 %) |
+| macOS: real LV1 (0.1.10, 2026-11-24) | LV1 17.3.108 on macOS 12.7.6 (Intel), installed with install.sh: TuneSync loaded and listed; RTP-MIDI from the iPad, CC 21 = 63 -> `[ok] Tempo 63 BPM (was 120)`; no picture or status refusal logged. The first start found UDP 5004 taken (macOS's own network MIDI session), so RTP-MIDI was moved to 5007 by hand |
 
 **A Mac over the network (2026-11-23, macOS 12.7.6, Audio MIDI Setup's network session, both
 on Wi-Fi, RTT 2-8 ms):** the Mac listed "TuneSync" under Directory (DNS-SD advertising works)
