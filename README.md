@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-3fb37f"></a>
-  <img alt="Platform: Windows 10/11 x64" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-1f2228">
+  <img alt="Platform: Windows 10/11 x64, macOS 11+" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64%20%7C%20macOS%2011%2B-1f2228">
   <img alt="Tested with eMotion LV1 17.3" src="https://img.shields.io/badge/eMotion%20LV1-17.3%20tested-1f2228">
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-1f2228">
 </p>
@@ -68,21 +68,44 @@ over the Tunes.
 
 ## Requirements
 
-- Windows 10 or 11, 64-bit
-- Waves eMotion LV1 (tested with 17.3.108; the control-surface interface is the same in 16.5)
+- Windows 10 or 11, 64-bit, or macOS 11 or later (Intel or Apple silicon)
+- Waves eMotion LV1 (tested with 17.3.108 on Windows 11 and macOS 12; the control-surface
+  interface is the same in 16.5)
 - Waves Tune Real-Time in the session
 - For network MIDI from a Mac: the Mac's network session (Audio MIDI Setup)
 
 ## Installation
 
+Download the latest release from **[Releases](https://github.com/flaviusemil/tunesync-lv1/releases/latest)**:
+`TuneSync-<version>-setup.exe` for Windows, `TuneSync-<version>-macos.zip` for macOS.
+
+### Windows
+
 1. Close eMotion LV1.
 2. Run `TuneSync-<version>-setup.exe` as administrator. Keep *Add TuneSync to eMotion LV1's
-   control surfaces* selected.
+   control surfaces* selected. The setup is not code-signed yet, so Windows SmartScreen may
+   warn about an unknown publisher: choose *More info → Run anyway*.
 3. Start LV1. TuneSync appears under **Setup → Control Surfaces**; its settings button opens
    the TuneSync window.
 
 The setup installs `TuneSync_Control.dll` into LV1's `Modules` folder. Settings and the log are
 kept in `%ProgramData%\TuneSync`. Uninstall from Windows Settings → Apps, with LV1 closed.
+
+### macOS
+
+1. Quit eMotion LV1 and unzip `TuneSync-<version>-macos.zip`.
+2. Open Terminal in the unzipped folder (Finder: right-click the folder → *New Terminal at
+   Folder*) and run `sudo ./install.sh`. It copies `TuneSync_Control.bundle` into
+   `/Applications/Waves/eMotion LV1/Modules` and adds TuneSync to LV1's control surfaces
+   (LV1's preferences are backed up first).
+3. Start LV1. TuneSync appears under **Setup → Control Surfaces**.
+
+Settings and the log are kept in `/Library/Application Support/TuneSync`. `sudo ./install.sh
+--remove` takes TuneSync out again. The bundle is universal (Intel and Apple silicon) and
+ad-hoc signed, not notarized; `install.sh` clears the download's quarantine flag.
+
+In both, LV1 shows TuneSync's status beside it (**ON** in green when a MIDI input or a network
+peer is connected, **N/A** in red when not) and its own picture in **Setup → System Inventory**.
 
 ## Usage
 
@@ -127,8 +150,10 @@ song's start cue, next to the key note and the scale CC.
    session as the MIDI output of the tracks session.
 
 TuneSync can also invite a Mac itself: Macs that publish a network session are listed in the
-RTP-MIDI sheet under *Found on the network*. Typing the PC's address and port 5004 on the Mac
-works as well.
+RTP-MIDI sheet under *Found on the network*. Typing the PC's address and the port the RTP-MIDI
+sheet shows on the Mac works as well. The port is 5004 unless another RTP-MIDI session already
+holds it (macOS's own network session, rtpMIDI on Windows); TuneSync then moves up to the next
+free pair (5006, 5008, ...) by itself.
 
 <p align="center">
   <img src="docs/images/window-rtp.png" width="420" alt="The RTP-MIDI sheet">
@@ -148,6 +173,11 @@ tools/cargo.sh test --workspace     # all tests
 tools/build-dll.sh                  # dist/TuneSync_Control.dll
 tools/wine/run-sim.sh               # the DLL against a simulated LV1, under Wine
 tools/make-installer.sh             # dist/TuneSync-<version>-setup.exe
+
+# macOS, no Mac needed: Apple's Rust targets and a stub-based linker (tools/mac/cc.sh).
+docker build -t tunesync-mac:1 -f tools/docker/mac.Dockerfile tools/docker
+tools/build-mac.sh                  # dist/mac/TuneSync_Control.bundle and the macOS zip
+MAC=user@host tools/mac/run-sim.sh  # the bundle against a simulated LV1, on a Mac
 ```
 
 `tools/wine/run-sim.sh` loads the DLL the way LV1 does, against a fake mixer core with three
@@ -162,21 +192,23 @@ Tune instances, and drives it end to end: interface checks, an RTP-MIDI cue, Loc
 | [`crates/host`](crates/host) | The runtime: worker threads, MIDI input by name, the RTP-MIDI service and DNS-SD, settings and log files. |
 | [`crates/lv1-surface`](crates/lv1-surface) | eMotion LV1's control-surface driver interface in Rust: the ABI, the exported entry points and guarded calls into LV1. |
 | [`crates/ui`](crates/ui) | The settings window as a portable view model, with an SVG renderer for previews and tests. |
-| [`crates/control`](crates/control) | `TuneSync_Control.dll`, the thin module LV1 loads, with the Direct2D window. |
+| [`crates/control`](crates/control) | `TuneSync_Control.dll` / `TuneSync_Control.bundle`, the thin module LV1 loads, with the Direct2D (Windows) and AppKit (macOS) window. |
 | [`crates/capi`](crates/capi) | TuneSync as a C library (`include/tunesync.h`, static or shared) for a C or C++ host. |
-| [`crates/sim`](crates/sim) | A simulated LV1 for testing the DLL without LV1. |
+| [`crates/sim`](crates/sim) | A simulated LV1 for testing the DLL (and, on a Mac, the bundle) without LV1. |
 
 The design and its decisions are documented in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Status
 
 TuneSync 0.1 has been tested on a live LV1 system (LV1 17.3.108, Windows 11): RTP-MIDI and
-local MIDI cues, Lock, the settings window, LV1's responsiveness, and a Mac, an iPad and an
-iPhone joining over a real network in both directions. Still to be verified: the stereo Tune
-instance.
+local MIDI cues, Lock, tempo by CC, the settings window, LV1's responsiveness, the status and
+picture in LV1's surface list, and a Mac, an iPad and an iPhone joining over a real network in
+both directions. The macOS version has been tested in LV1 17.3.108 on macOS 12 (Intel): loading,
+RTP-MIDI from an iPad and tempo by CC; its Apple silicon half is built but not yet tried on
+hardware. Still to be verified: the stereo Tune instance.
 
 The library is also available as a C API ([`crates/capi`](crates/capi)) for embedding in other
-hosts. Planned: a macOS version.
+hosts.
 
 ## License
 

@@ -20,8 +20,9 @@ Install (quit eMotion LV1 first)
 MIDI in
   Any CoreMIDI source, chosen by name: a USB interface, a console's USB MIDI, the IAC
   driver, or the Mac's own network session (Audio MIDI Setup > MIDI Studio > Network,
-  "Network Session 1"). TuneSync's own RTP-MIDI session (off by default) also works; if the
-  Mac's network session is enabled on UDP 5004 too, give TuneSync another port (5006).
+  "Network Session 1"). TuneSync's own RTP-MIDI session (off by default) also works; when
+  the Mac's network session already holds UDP 5004, TuneSync moves up to the next free pair
+  (5006, 5008, ...) by itself, and its RTP-MIDI sheet shows the port it got.
 
 The bundle is universal (Intel and Apple silicon) and ad-hoc signed, not notarized.
 Not affiliated with or endorsed by Waves.
